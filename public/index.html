@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>OCR Translate PDF</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script async src="https://docs.opencv.org/3.4.0/opencv.js"></script>
+    <script defer src="script.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <h1>OCR - Translate - PDF</h1>
+      <input type="file" id="file-input" accept="image/*" />
+
+      <img
+        id="image-preview"
+        src="#"
+        alt="Xem trước ảnh"
+        style="display: none; max-width: 400px; margin-top: 10px"
+      />
+
+      <div id="options-container" style="display: none">
+        <div class="options-grid">
+          <div class="option-group">
+            <h3>Chế độ xử lý</h3>
+            <label
+              ><input type="radio" name="mode" value="client" checked /> Client
+              OCR</label
+            >
+            <label
+              ><input type="radio" name="mode" value="server" /> Server
+              OCR+Translate+PDF</label
+            >
+          </div>
+          <div class="option-group">
+            <h3>Ngôn ngữ</h3>
+            OCR:
+            <select id="ocr-lang">
+              <option value="eng" selected>English</option>
+              <option value="vie">Vietnamese</option>
+            </select>
+            →
+            <select id="target-lang">
+              <option value="vi" selected>Vietnamese</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+        <button id="run-btn">Chạy OCR</button>
+      </div>
+
+      <canvas id="canvas" style="display: none; max-width: 400px"></canvas>
+      <pre id="text-output"></pre>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,21 @@
+# Thư mục node
+node_modules/
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.test
+.env.production
+
+# Hệ thống
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
