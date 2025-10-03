@@ -2,56 +2,62 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>OCR Translate PDF</title>
+    <title>OCR Translate Export</title>
     <link rel="stylesheet" href="styles.css" />
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script async src="https://docs.opencv.org/3.4.0/opencv.js"></script>
-    <script defer src="script.js"></script>
   </head>
   <body>
     <div class="container">
-      <h1>OCR - Translate - PDF</h1>
-      <input type="file" id="file-input" accept="image/*" />
+      <h1>OCR Translate Export</h1>
 
-      <img
-        id="image-preview"
-        src="#"
-        alt="Xem trước ảnh"
-        style="display: none; max-width: 400px; margin-top: 10px"
-      />
-
-      <div id="options-container" style="display: none">
-        <div class="options-grid">
-          <div class="option-group">
-            <h3>Chế độ xử lý</h3>
-            <label
-              ><input type="radio" name="mode" value="client" checked /> Client
-              OCR</label
-            >
-            <label
-              ><input type="radio" name="mode" value="server" /> Server
-              OCR+Translate+PDF</label
-            >
-          </div>
-          <div class="option-group">
-            <h3>Ngôn ngữ</h3>
-            OCR:
-            <select id="ocr-lang">
-              <option value="eng" selected>English</option>
-              <option value="vie">Vietnamese</option>
-            </select>
-            →
-            <select id="target-lang">
-              <option value="vi" selected>Vietnamese</option>
-              <option value="en">English</option>
-            </select>
-          </div>
+      <form id="upload-form">
+        <div class="option-group">
+          <h3>Chọn file ảnh</h3>
+          <input
+            type="file"
+            id="image"
+            name="image"
+            accept="image/*"
+            required
+          />
         </div>
-        <button id="run-btn">Chạy OCR</button>
-      </div>
 
-      <canvas id="canvas" style="display: none; max-width: 400px"></canvas>
-      <pre id="text-output"></pre>
+        <div class="option-group">
+          <h3>Ngôn ngữ dịch sang</h3>
+          <select id="target-lang" name="targetLang">
+            <option value="vi" selected>Tiếng Việt</option>
+            <option value="en">Tiếng Anh</option>
+            <option value="fr">Tiếng Pháp</option>
+            <option value="ja">Tiếng Nhật</option>
+            <option value="zh-cn">Tiếng Trung (Giản thể)</option>
+            <!-- thêm ngôn ngữ khác nếu cần -->
+          </select>
+        </div>
+
+        <div class="option-group">
+          <h3>Định dạng xuất</h3>
+          <select id="output-format" name="outputFormat">
+            <option value="pdf" selected>PDF</option>
+            <option value="docx">Word (.docx)</option>
+            <option value="txt">Text (.txt)</option>
+          </select>
+        </div>
+
+        <div class="option-group">
+          <h3>Tiêu đề tài liệu</h3>
+          <input
+            type="text"
+            id="doc-title"
+            name="docTitle"
+            placeholder="Converted Document"
+          />
+        </div>
+
+        <button type="submit">Chạy OCR & Dịch</button>
+      </form>
+
+      <div id="status"></div>
     </div>
+
+    <script src="script.js"></script>
   </body>
 </html>

@@ -1,75 +1,120 @@
+// Import các thư viện cần thiết
 import express from "express";
-import multer from "multer";
-import { LRUCache } from "lru-cache"; // ✅ sửa import
-import crypto from "crypto";
+import multer from "multer"; // Xử lý upload file
+import crypto from "crypto"; // Tạo hash cho cache key
+import { LRUCache } from "lru-cache"; // Tạo bộ nhớ đệm (cache)
 import path from "path";
 import { fileURLToPath } from "url";
-import fs from "fs";
-import { ocrImageToText } from "./utils/ocr.js";
-import { translateText } from "./utils/translate.js";
-import { textToPdfBuffer } from "./utils/pdf.js";
 
-const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
+// Import các module tự định nghĩa
+import { runPipeline } from "./pipeline.js"; // Hàm chạy pipeline xử lý
+import { OCRFilter } from "./filters/ocrFilter.js"; // Filter nhận dạng văn bản
+import { TranslateFilter } from "./filters/translateFilter.js"; // Filter dịch văn bản
+import { PdfFilter } from "./filters/pdfFilter.js"; // Filter xuất file PDF
+import { DocxFilter } from "./filters/docxFilter.js"; // Filter xuất file DOCX
+import { TxtFilter } from "./filters/txtFilter.js"; // Filter xuất file TXT
 
-// ✅ dùng LRUCache
-const cache = new LRUCache({ max: 200, ttl: 1000 * 60 * 60 });
+// --- Cấu hình server ---
 
+// Lấy đường dẫn thư mục hiện tại
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const indexHtml = fs.readFileSync(
-  path.join(__dirname, "public", "index.html"),
-  "utf-8"
-);
-const scriptJs = fs.readFileSync(
-  path.join(__dirname, "public", "script.js"),
-  "utf-8"
-);
+// Khởi tạo Express app
+const app = express();
+// Cấu hình multer để lưu file upload trong bộ nhớ
+const upload = multer({ storage: multer.memoryStorage() });
 
-app.get("/", (req, res) => {
-  res.send(indexHtml);
-});
+// Cấu hình cache: lưu tối đa 200 kết quả trong 1 giờ
+const cache = new LRUCache({ max: 200, ttl: 1000 * 60 * 60 });
 
-app.get("/script.js", (req, res) => {
-  res.type("application/javascript").send(scriptJs);
-});
+// Phục vụ các file tĩnh từ thư mục 'public'
+app.use(express.static(path.join(__dirname, "public")));
 
+// --- Định nghĩa API endpoint ---
+
+/**
+ * Endpoint chính để xử lý ảnh:
+ * 1. Nhận dạng văn bản (OCR)
+ * 2. Dịch văn bản
+ * 3. Xuất ra file theo định dạng yêu cầu (PDF, DOCX, TXT)
+ */
 app.post("/api/convert", upload.single("image"), async (req, res) => {
   try {
+    // Kiểm tra file đã được upload chưa
     if (!req.file) return res.status(400).json({ error: "Thiếu file ảnh" });
 
+    // Lấy các tham số từ request body
     const {
-      ocrLang = "eng",
-      targetLang = "vi",
-      docTitle = "Converted",
+      targetLang = "vi", // Ngôn ngữ đích để dịch
+      docTitle = "Converted", // Tiêu đề tài liệu
+      outputFormat = "pdf", // Định dạng file output
     } = req.body;
+
+    // --- Xử lý Cache ---
+
+    // Tạo cache key duy nhất dựa trên nội dung file và các tham số
     const key = crypto
       .createHash("sha256")
       .update(req.file.buffer)
+      .update(targetLang)
+      .update(outputFormat)
       .digest("hex");
 
+    // Nếu kết quả đã có trong cache, trả về ngay lập tức
     if (cache.has(key)) {
-      res.setHeader("Content-Type", "application/pdf");
-      return res.send(cache.get(key));
+      const cached = cache.get(key);
+      res.setHeader("Content-Type", cached.mime);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${cached.filename}"`
+      );
+      return res.send(cached.buffer);
     }
 
-    const text = await ocrImageToText(req.file.buffer, ocrLang);
-    const translated = await translateText(text, targetLang);
-    const pdfBuffer = await textToPdfBuffer(translated, docTitle);
+    // --- Xử lý Pipeline ---
 
-    cache.set(key, pdfBuffer);
+    // Chọn filter để xuất file dựa trên outputFormat
+    let exportFilter = PdfFilter;
+    if (outputFormat === "docx") exportFilter = DocxFilter;
+    if (outputFormat === "txt") exportFilter = TxtFilter;
 
-    res.setHeader("Content-Type", "application/pdf");
+    // Chuẩn bị context object để truyền qua pipeline
+    const ctx = {
+      buffer: req.file.buffer, // Dữ liệu file ảnh
+      targetLang, // Ngôn ngữ đích
+      title: docTitle, // Tiêu đề
+    };
+
+    // Chạy pipeline với các filter đã chọn
+    const result = await runPipeline(ctx, [
+      OCRFilter, // Bước 1: Nhận dạng văn bản
+      TranslateFilter, // Bước 2: Dịch
+      exportFilter, // Bước 3: Xuất file
+    ]);
+
+    // Lưu kết quả vào cache
+    cache.set(key, {
+      mime: result.mime,
+      filename: result.filename,
+      buffer: result.output,
+    });
+
+    // Trả kết quả về cho client
+    res.setHeader("Content-Type", result.mime);
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${docTitle}.pdf"`
+      `attachment; filename="${result.filename}"`
     );
-    res.send(pdfBuffer);
+    res.send(result.output);
   } catch (err) {
-    console.error(err);
+    // Xử lý lỗi nếu có
+    console.error("Lỗi xử lý:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.listen(3000, () => console.log("Server chạy tại http://localhost:3000"));
+// --- Khởi động Server ---
+app.listen(3000, () => {
+  console.log("🚀 Server chạy tại http://localhost:3000");
+});

@@ -1,90 +1,48 @@
-async function extractText() {
-  const mode = document.querySelector('input[name="mode"]:checked').value;
-  if (mode === "client") {
-    return runClientOcr();
-  } else {
-    return runServerPipeline();
+document.getElementById("upload-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const fileInput = document.getElementById("image");
+  if (!fileInput.files.length) {
+    alert("Vui lòng chọn file ảnh!");
+    return;
   }
-}
 
-async function runClientOcr() {
-  const file = document.getElementById("file-input").files?.[0];
-  if (!file) return alert("Chọn ảnh");
-
-  const img = await loadImage(file);
-  const canvas = document.getElementById("canvas");
-  const ctx = canvas.getContext("2d");
-  canvas.width = img.width;
-  canvas.height = img.height;
-  ctx.drawImage(img, 0, 0);
-
-  const src = cv.imread(canvas);
-  const gray = new cv.Mat();
-  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-  const blur = new cv.Mat();
-  cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
-  const thresh = new cv.Mat();
-  cv.threshold(blur, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
-  cv.imshow(canvas, thresh);
-
-  src.delete();
-  gray.delete();
-  blur.delete();
-
-  const {
-    data: { text },
-  } = await Tesseract.recognize(
-    canvas.toDataURL(),
-    document.getElementById("ocr-lang").value
-  );
-  document.getElementById("text-output").innerText = text;
-  thresh.delete();
-}
-
-async function runServerPipeline() {
-  const file = document.getElementById("file-input").files?.[0];
-  if (!file) return alert("Chọn ảnh");
+  const statusDiv = document.getElementById("status");
+  statusDiv.innerText = "Đang xử lý...";
 
   const fd = new FormData();
-  fd.append("image", file);
-  fd.append("ocrLang", document.getElementById("ocr-lang").value);
+  fd.append("image", fileInput.files[0]);
   fd.append("targetLang", document.getElementById("target-lang").value);
-  fd.append("docTitle", "Converted-Doc");
+  fd.append("outputFormat", document.getElementById("output-format").value);
+  fd.append("docTitle", document.getElementById("doc-title").value);
 
-  const resp = await fetch("/api/convert", { method: "POST", body: fd });
-  if (!resp.ok) return alert("Server error");
+  try {
+    const res = await fetch("/api/convert", { method: "POST", body: fd });
 
-  const blob = await resp.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "Converted-Doc.pdf";
-  a.click();
-  URL.revokeObjectURL(url);
-}
+    if (!res.ok) {
+      const err = await res.json();
+      statusDiv.innerText = "Lỗi: " + (err.error || "Không rõ");
+      return;
+    }
 
-function loadImage(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
-}
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition");
+    let filename = "output";
+    if (cd && cd.includes("filename=")) {
+      filename = cd.split("filename=")[1].replace(/"/g, "");
+    }
 
-document.getElementById("run-btn").addEventListener("click", extractText);
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
 
-document.getElementById("file-input").addEventListener("change", (event) => {
-  const file = event.target.files?.[0];
-  const imagePreview = document.getElementById("image-preview");
-  const optionsContainer = document.getElementById("options-container");
-
-  if (file) {
-    imagePreview.src = URL.createObjectURL(file);
-    imagePreview.style.display = "block";
-    optionsContainer.style.display = "block";
-  } else {
-    imagePreview.style.display = "none";
-    optionsContainer.style.display = "none";
+    statusDiv.innerText = "✅ Hoàn tất! File đã được tải về.";
+  } catch (err) {
+    console.error(err);
+    statusDiv.innerText = "Lỗi khi gửi yêu cầu.";
   }
 });

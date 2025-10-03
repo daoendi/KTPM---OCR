@@ -1,67 +1,98 @@
+/* Reset cơ bản */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
 body {
-  font-family: Arial, sans-serif;
+  background: #f5f7fa;
+  color: #333;
   display: flex;
   justify-content: center;
-  align-items: center;
-  height: 100vh;
-  margin: 0;
-  background-color: #f0f0f0;
+  align-items: flex-start;
+  min-height: 100vh;
+  padding: 40px 10px;
 }
 
 .container {
-  background-color: white;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-  text-align: center;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  padding: 30px 25px;
+  max-width: 480px;
+  width: 100%;
 }
 
 h1 {
-  color: #333;
-}
-
-input[type="file"] {
-  margin-bottom: 10px;
-}
-
-button {
-  background-color: #007bff;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  cursor: pointer;
-  border-radius: 5px;
-}
-
-button:hover {
-  background-color: #0056b3;
-}
-
-#output {
-  margin-top: 20px;
-  text-align: left;
-}
-
-#text-output {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  background-color: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 10px;
-  border-radius: 5px;
-}
-
-.options-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  font-size: 1.8rem;
   margin-bottom: 20px;
+  text-align: center;
+  color: #222;
 }
 
+/* Nhóm tuỳ chọn */
 .option-group {
-  text-align: left;
+  margin-bottom: 18px;
 }
 
 .option-group h3 {
-  margin-top: 0;
+  font-size: 1rem;
+  margin-bottom: 8px;
+  color: #444;
+}
+
+.option-group input[type="file"],
+.option-group select,
+.option-group input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  transition: border 0.2s ease;
+}
+
+.option-group input:focus,
+.option-group select:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+/* Nút submit */
+button {
+  width: 100%;
+  background: #007bff;
+  color: white;
+  font-size: 1rem;
+  font-weight: bold;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.25s ease;
+}
+
+button:hover {
+  background: #0056b3;
+}
+
+/* Trạng thái */
+#status {
+  margin-top: 20px;
+  font-size: 0.95rem;
+  text-align: center;
+  color: #555;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .container {
+    padding: 20px 15px;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+  }
 }
