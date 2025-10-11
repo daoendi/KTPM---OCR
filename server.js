@@ -1,85 +1,88 @@
-// Import các thư viện cần thiết
 import express from "express";
-import multer from "multer"; // Xử lý upload file
-import crypto from "crypto"; // Tạo hash cho cache key
-import { LRUCache } from "lru-cache"; // Cache
+import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// Import các module tự định nghĩa
+// 📦 Import pipeline & filters
 import { runPipeline } from "./pipeline.js";
+import { CacheFilter } from "./filters/cacheFilter.js";
 import { OCRFilter } from "./filters/ocrFilter.js";
 import { TranslateFilter } from "./filters/translateFilter.js";
 import { PdfFilter } from "./filters/pdfFilter.js";
 import { DocxFilter } from "./filters/docxFilter.js";
 import { TxtFilter } from "./filters/txtFilter.js";
 
-// --- Cấu hình server ---
+// 📊 Import thống kê cache
+import { getCacheStats, resetStats } from "./utils/cacheStats.js";
+
+// ✅ Import hàm khởi tạo OCR worker
+import { initWorker, terminateWorker } from "./utils/ocr.js";
+
+// ✅ Cấu hình đường dẫn hiện tại
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Cache: lưu tối đa 200 kết quả trong 1 giờ
-const cache = new LRUCache({ max: 200, ttl: 1000 * 60 * 60 });
-
-// Phục vụ các file tĩnh trong thư mục public
+// 📁 Phục vụ file tĩnh từ thư mục public/
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- API endpoint ---
+// ===============================
+// 📊 API: Lấy thống kê cache
+// ===============================
+app.get("/api/cache-stats", (req, res) => {
+  res.json(getCacheStats());
+});
+
+// 🔄 API: Reset thống kê cache
+app.post("/api/cache-reset", (req, res) => {
+  resetStats();
+  res.json({ message: "✅ Cache stats reset thành công!" });
+});
+
+// ===============================
+// 📤 API: OCR + Translate + Export
+// ===============================
 app.post("/api/convert", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "Thiếu file ảnh" });
+    if (!req.file) {
+      return res.status(400).json({ error: "❌ Thiếu file ảnh để xử lý OCR." });
+    }
 
     const {
       targetLang = "vi", // Ngôn ngữ đích
       docTitle = "Converted", // Tiêu đề tài liệu
-      outputFormat = "pdf", // Định dạng output
+      outputFormat = "pdf", // Định dạng đầu ra
     } = req.body;
 
-    // --- Cache ---
-    const key = crypto
-      .createHash("sha256")
-      .update(req.file.buffer)
-      .update(targetLang)
-      .update(outputFormat)
-      .digest("hex");
-
-    if (cache.has(key)) {
-      const cached = cache.get(key);
-      res.setHeader("Content-Type", cached.mime);
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${cached.filename}"`
-      );
-      return res.send(cached.buffer);
-    }
-
-    // --- Pipeline ---
+    // 🛠️ Xác định filter xuất phù hợp
     let exportFilter = PdfFilter;
     if (outputFormat === "docx") exportFilter = DocxFilter;
     if (outputFormat === "txt") exportFilter = TxtFilter;
 
+    // 📦 Ngữ cảnh pipeline
     const ctx = {
       buffer: req.file.buffer,
+      lang: "eng+vie", // ✅ Thêm ngôn ngữ OCR
       targetLang,
       title: docTitle,
+      outputFormat,
     };
 
+    console.log("🚀 Bắt đầu pipeline OCR + Translate...");
+
+    // 🚀 Chạy pipeline
     const result = await runPipeline(ctx, [
-      OCRFilter,
-      TranslateFilter,
-      exportFilter,
+      CacheFilter, // ✅ Kiểm tra & lưu cache
+      OCRFilter, // 🔎 OCR ảnh sang văn bản
+      TranslateFilter, // 🌐 Dịch văn bản
+      exportFilter, // 📤 Xuất ra định dạng mong muốn
     ]);
 
-    // Lưu vào cache
-    cache.set(key, {
-      mime: result.mime,
-      filename: result.filename,
-      buffer: result.output,
-    });
+    console.log("✅ Pipeline hoàn tất. Gửi kết quả về client...");
 
+    // 📤 Trả kết quả file cho client
     res.setHeader("Content-Type", result.mime);
     res.setHeader(
       "Content-Disposition",
@@ -87,13 +90,36 @@ app.post("/api/convert", upload.single("image"), async (req, res) => {
     );
     res.send(result.output);
   } catch (err) {
-    console.error("❌ Lỗi xử lý:", err);
+    console.error("❌ Lỗi xử lý pipeline:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- Khởi động Server ---
+// ===============================
+// 🚀 Khởi động server (với initWorker)
+// ===============================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server chạy tại http://localhost:${PORT}`);
-});
+
+(async () => {
+  try {
+    console.log("⚙️ Khởi tạo OCR worker...");
+    await initWorker(); // ✅ Khởi tạo worker trước khi server chạy
+
+    app.listen(PORT, () => {
+      console.log(`🚀 Server đang chạy tại: http://localhost:${PORT}`);
+      console.log(
+        "📊 Xem thống kê cache tại: http://localhost:3000/cache-stats.html"
+      );
+    });
+
+    // 🧹 Dọn dẹp worker khi dừng server
+    process.on("SIGINT", async () => {
+      console.log("\n🛑 Đang tắt server, giải phóng worker...");
+      await terminateWorker();
+      process.exit(0);
+    });
+  } catch (err) {
+    console.error("❌ Lỗi khi khởi tạo OCR worker:", err);
+    process.exit(1);
+  }
+})();

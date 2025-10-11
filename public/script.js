@@ -1,3 +1,13 @@
+document.getElementById("image").addEventListener("change", (e) => {
+  const [file] = e.target.files;
+  if (file) {
+    const preview = document.getElementById("image-preview");
+    const container = document.getElementById("image-preview-container");
+    preview.src = URL.createObjectURL(file);
+    container.style.display = "block";
+  }
+});
+
 document.getElementById("upload-form").addEventListener("submit", async (e) => {
   e.preventDefault();
 

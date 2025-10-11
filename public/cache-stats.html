@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>📊 Redis Cache Statistics</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      margin: 0;
+      padding: 2rem;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #2b8a3e;
+      margin-bottom: 1.5rem;
+    }
+    .stats {
+      max-width: 500px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    .stats p {
+      font-size: 1.2rem;
+      margin: 0.5rem 0;
+    }
+    .progress {
+      width: 100%;
+      background: #e0e0e0;
+      border-radius: 8px;
+      overflow: hidden;
+      height: 20px;
+      margin-top: 1rem;
+    }
+    .bar {
+      height: 100%;
+      background: #4caf50;
+      width: 0%;
+      transition: width 0.3s ease-in-out;
+    }
+    button {
+      display: block;
+      margin: 1.5rem auto 0;
+      padding: 0.7rem 1.5rem;
+      font-size: 1rem;
+      background: #e53935;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:hover {
+      background: #c62828;
+    }
+    canvas {
+      max-width: 700px;
+      margin: 2rem auto;
+      display: block;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>📊 Redis Cache Statistics</h1>
+
+  <div class="stats">
+    <p>🟢 Cache Hits: <span id="hits">0</span></p>
+    <p>🟡 Cache Misses: <span id="misses">0</span></p>
+    <p>📈 Total Requests: <span id="total">0</span></p>
+    <p>✅ Hit Rate: <span id="hitRate">0%</span></p>
+
+    <div class="progress">
+      <div class="bar" id="hitBar"></div>
+    </div>
+
+    <button id="resetBtn">🔄 Reset Statistics</button>
+  </div>
+
+  <canvas id="cacheChart"></canvas>
+
+  <script>
+    let chart;
+    const labels = [];
+    const hitData = [];
+    const missData = [];
+
+    async function fetchStats() {
+      try {
+        const res = await fetch("/api/cache-stats");
+        const data = await res.json();
+        document.getElementById("hits").textContent = data.hits;
+        document.getElementById("misses").textContent = data.misses;
+        document.getElementById("total").textContent = data.total;
+        document.getElementById("hitRate").textContent = data.hitRate;
+
+        // cập nhật thanh tiến trình
+        document.getElementById("hitBar").style.width = data.hitRate;
+
+        // cập nhật dữ liệu biểu đồ
+        const now = new Date().toLocaleTimeString();
+        labels.push(now);
+        hitData.push(data.hits);
+        missData.push(data.misses);
+
+        // giữ tối đa 10 điểm dữ liệu
+        if (labels.length > 10) {
+          labels.shift();
+          hitData.shift();
+          missData.shift();
+        }
+
+        chart.update();
+      } catch (e) {
+        console.error("❌ Lỗi lấy thống kê:", e);
+      }
+    }
+
+    async function resetStats() {
+      await fetch("/api/cache-reset", { method: "POST" });
+      labels.length = 0;
+      hitData.length = 0;
+      missData.length = 0;
+      chart.update();
+      await fetchStats();
+    }
+
+    function initChart() {
+      const ctx = document.getElementById("cacheChart").getContext("2d");
+      chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: "Cache Hits",
+              data: hitData,
+              borderColor: "#4caf50",
+              backgroundColor: "rgba(76, 175, 80, 0.2)",
+              tension: 0.2,
+              fill: true,
+            },
+            {
+              label: "Cache Misses",
+              data: missData,
+              borderColor: "#e53935",
+              backgroundColor: "rgba(229, 57, 53, 0.2)",
+              tension: 0.2,
+              fill: true,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: "Số lượng" },
+            },
+            x: {
+              title: { display: true, text: "Thời gian (giây)" },
+            },
+          },
+        },
+      });
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetStats);
+
+    initChart();
+    fetchStats();
+    setInterval(fetchStats, 5000); // Cập nhật mỗi 5s
+  </script>
+</body>
+</html>

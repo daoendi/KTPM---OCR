@@ -1,22 +1,33 @@
-/**
- * Filter để chuyển đổi văn bản trong context thành file TXT.
- *
- * @param {object} ctx - Đối tượng context.
- * @property {string} [ctx.translated] - Văn bản đã dịch (ưu tiên sử dụng).
- * @property {string} [ctx.text] - Văn bản gốc.
- * @property {string} [ctx.title] - Tiêu đề của tài liệu.
- * @returns {Promise<object>} - Context được cập nhật với buffer TXT, mime type và tên file.
- */
+// filters/txtFilter.js
+import { redisClient } from "../utils/redisClient.js";
+
 export async function TxtFilter(ctx) {
-  // Lấy nội dung: ưu tiên văn bản đã dịch, nếu không có thì dùng văn bản gốc
-  const content = ctx.translated ?? ctx.text ?? "";
+  // Lấy nội dung văn bản cuối cùng, đảm bảo nó là một chuỗi.
+  let content = ctx.translated ?? ctx.text ?? "";
+  if (Array.isArray(content)) {
+    content = content.join("\n");
+  }
 
-  // Chuyển nội dung thành buffer UTF-8
-  ctx.output = Buffer.from(content, "utf-8");
-
-  // Cập nhật thông tin file vào context
+  // Cập nhật context với output dạng text.
+  ctx.output = Buffer.from(String(content), "utf-8");
   ctx.mime = "text/plain";
   ctx.filename = `${ctx.title || "Document"}.txt`;
+
+  // Lưu kết quả vào cache nếu có cacheKey và Redis client đã sẵn sàng.
+  if (ctx.cacheKey && redisClient?.isOpen) {
+    await redisClient.set(
+      ctx.cacheKey,
+      JSON.stringify({
+        text: ctx.text,
+        translated: ctx.translated,
+        mime: ctx.mime,
+        filename: ctx.filename,
+        output: ctx.output.toString("base64"),
+      }),
+      { EX: 60 * 60 } // Thời gian hết hạn cache là 1 giờ.
+    );
+    console.log("Saved to cache:", ctx.cacheKey);
+  }
 
   return ctx;
 }
