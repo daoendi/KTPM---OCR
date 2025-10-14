@@ -2,27 +2,21 @@ import { textToPdfBuffer } from "../utils/pdf.js";
 import { redisClient } from "../utils/redisClient.js";
 
 export async function PdfFilter(ctx) {
-  // ✅ Ưu tiên bản dịch nếu có, fallback về văn bản OCR
+  const start = performance.now(); // ⏱️ Bắt đầu đo thời gian
+
   let content = ctx.translatedText || ctx.translated || ctx.text || "";
+  if (Array.isArray(content)) content = content.join("\n");
 
-  // ✅ Nếu là mảng, nối bằng xuống dòng
-  if (Array.isArray(content)) {
-    content = content.join("\n");
-  }
-
-  // ✅ Làm sạch nội dung: thay thế \r\n hoặc ký tự lạ
   content = String(content)
-    .replace(/\r\n/g, "\n") // Chuẩn hóa xuống dòng
+    .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
-    .replace(/\n{2,}/g, "\n\n") // Gộp nhiều dòng trống
+    .replace(/\n{2,}/g, "\n\n")
     .trim();
 
-  // ✅ Chuyển text thành PDF (utils/pdf.js cần hỗ trợ font Unicode)
   ctx.output = await textToPdfBuffer(content, ctx.title || "Document");
   ctx.mime = "application/pdf";
   ctx.filename = `${ctx.title || "Document"}.pdf`;
 
-  // ✅ Cache kết quả nếu Redis sẵn sàng
   if (ctx.cacheKey && redisClient?.isOpen) {
     await redisClient.set(
       ctx.cacheKey,
@@ -33,12 +27,13 @@ export async function PdfFilter(ctx) {
         filename: ctx.filename,
         output: ctx.output.toString("base64"),
       }),
-      { EX: 60 * 60 } // cache 1 giờ
+      { EX: 60 * 60 }
     );
     console.log("✅ Saved PDF result to cache:", ctx.cacheKey);
-  } else {
-    console.log("⚠️ Redis client not available, skipping cache.");
   }
+
+  const end = performance.now(); // ⏱️ Kết thúc đo
+  console.log(`📊 PDF generation time: ${(end - start).toFixed(2)} ms`);
 
   return ctx;
 }

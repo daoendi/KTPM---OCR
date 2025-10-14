@@ -50,7 +50,7 @@ document.getElementById("upload-form").addEventListener("submit", async (e) => {
     a.click();
     a.remove();
 
-    statusDiv.innerText = "✅ Hoàn tất! File đã được tải về.";
+    statusDiv.innerText = "Hoàn tất! File đã được tải về.";
   } catch (err) {
     console.error(err);
     statusDiv.innerText = "Lỗi khi gửi yêu cầu.";

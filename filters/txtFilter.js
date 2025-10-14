@@ -1,33 +1,42 @@
-// filters/txtFilter.js
 import { redisClient } from "../utils/redisClient.js";
 
 export async function TxtFilter(ctx) {
-  // Lấy nội dung văn bản cuối cùng, đảm bảo nó là một chuỗi.
-  let content = ctx.translated ?? ctx.text ?? "";
-  if (Array.isArray(content)) {
-    content = content.join("\n");
-  }
+  const start = performance.now(); // ⏱️ Bắt đầu đo
 
-  // Cập nhật context với output dạng text.
-  ctx.output = Buffer.from(String(content), "utf-8");
+  let content = ctx.translatedText || ctx.translated || ctx.text || "";
+  if (Array.isArray(content)) content = content.join("\n");
+
+  content = String(content)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  ctx.output = Buffer.from(content, "utf-8");
   ctx.mime = "text/plain";
   ctx.filename = `${ctx.title || "Document"}.txt`;
 
-  // Lưu kết quả vào cache nếu có cacheKey và Redis client đã sẵn sàng.
   if (ctx.cacheKey && redisClient?.isOpen) {
-    await redisClient.set(
-      ctx.cacheKey,
-      JSON.stringify({
-        text: ctx.text,
-        translated: ctx.translated,
-        mime: ctx.mime,
-        filename: ctx.filename,
-        output: ctx.output.toString("base64"),
-      }),
-      { EX: 60 * 60 } // Thời gian hết hạn cache là 1 giờ.
-    );
-    console.log("Saved to cache:", ctx.cacheKey);
+    try {
+      await redisClient.set(
+        ctx.cacheKey,
+        JSON.stringify({
+          text: ctx.text,
+          translated: ctx.translatedText || ctx.translated,
+          mime: ctx.mime,
+          filename: ctx.filename,
+          output: ctx.output.toString("base64"),
+        }),
+        { EX: 60 * 60 }
+      );
+      console.log("✅ Saved TXT result to cache:", ctx.cacheKey);
+    } catch (e) {
+      console.error("❌ Error saving TXT to cache:", e.message);
+    }
   }
+
+  const end = performance.now(); // ⏱️ Kết thúc đo
+  console.log(`📊 TXT generation time: ${(end - start).toFixed(2)} ms`);
 
   return ctx;
 }

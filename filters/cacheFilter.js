@@ -4,7 +4,7 @@ import { redisClient } from "../utils/redisClient.js";
 import { recordHit, recordMiss } from "../utils/cacheStats.js";
 
 export async function CacheFilter(ctx) {
-  // 🔑 Tạo key cache duy nhất từ buffer + ngôn ngữ đích + định dạng output
+  // Tạo key cache duy nhất từ buffer + ngôn ngữ đích + định dạng output
   const key = crypto
     .createHash("sha256")
     .update(ctx.buffer)
@@ -12,11 +12,11 @@ export async function CacheFilter(ctx) {
     .update(ctx.outputFormat)
     .digest("hex");
 
-  // 🔍 Kiểm tra cache trong Redis
+  // Kiểm tra cache trong Redis
   const cached = await redisClient.get(key);
 
   if (cached) {
-    console.log("🟢 Cache HIT:", key);
+    //console.log("Cache HIT:", key);
     recordHit();
 
     const parsed = JSON.parse(cached);
@@ -27,16 +27,16 @@ export async function CacheFilter(ctx) {
     ctx.filename = parsed.filename;
     ctx.output = Buffer.from(parsed.output, "base64");
 
-    // ✅ Quan trọng: chỉ cần return ctx, KHÔNG GỌI next()
+    // Quan trọng: chỉ cần return ctx, KHÔNG GỌI next()
     return ctx;
   }
 
-  console.log("🟡 Cache MISS:", key);
+  //console.log("Cache MISS:", key);
   recordMiss();
 
-  // ✅ Nếu không có cache, gắn key vào ctx để các filter sau dùng khi ghi cache
+  // Nếu không có cache, gắn key vào ctx để các filter sau dùng khi ghi cache
   ctx.cacheKey = key;
 
-  // ❗ Không gọi next() nữa — chỉ return ctx để pipeline chuyển sang filter kế tiếp
+  // Không gọi next() nữa — chỉ return ctx để pipeline chuyển sang filter kế tiếp
   return ctx;
 }

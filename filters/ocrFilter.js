@@ -9,10 +9,10 @@ import { ocrImageToText } from "../utils/ocr.js";
  */
 export async function OCRFilter(ctx) {
   if (!ctx?.buffer) {
-    throw new Error("❌ OCRFilter: thiếu ctx.buffer (ảnh đầu vào).");
+    throw new Error("OCRFilter: thiếu ctx.buffer (ảnh đầu vào).");
   }
 
-  // ✅ fallback lang chuẩn
+  // fallback lang chuẩn
   const lang = ctx.lang || "eng+vie";
 
   ctx.text = await ocrImageToText(ctx.buffer, lang);

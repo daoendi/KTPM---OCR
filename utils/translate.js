@@ -25,7 +25,7 @@ export async function translateText(
 
     return data[0]?.translation || text;
   } catch (err) {
-    console.error("❌ Translate error:", err.message);
+    console.error("Translate error:", err.message);
     throw new Error(err.message);
   }
 }
