@@ -22,7 +22,7 @@ export async function TxtFilter(ctx) {
         ctx.cacheKey,
         JSON.stringify({
           text: ctx.text,
-          translated: ctx.translatedText || ctx.translated,
+          translated: ctx.translated,
           mime: ctx.mime,
           filename: ctx.filename,
           output: ctx.output.toString("base64"),
@@ -35,8 +35,8 @@ export async function TxtFilter(ctx) {
     }
   }
 
-  const end = performance.now(); // ⏱️ Kết thúc đo
-  console.log(`📊 TXT generation time: ${(end - start).toFixed(2)} ms`);
+  const end = performance.now(); //  Kết thúc đo
+  console.log(` TXT generation time: ${(end - start).toFixed(2)} ms`);
 
   return ctx;
 }

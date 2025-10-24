@@ -16,16 +16,26 @@ export async function translateText(
 ) {
   if (!text || text.trim() === "") return "";
 
+  if (!text || text.trim() === "") return "";
+
+  const normalized = { vie: "vi", eng: "en", fra: "fr" };
+  targetLang = normalized[targetLang] || targetLang;
+
   try {
     const data = await translator.TranslateLanguageData({
       listOfWordsToTranslate: [text],
       fromLanguage: fromLang,
       toLanguage: targetLang,
     });
+    if (!data || !data[0]) {
+      console.warn("⚠️ Google Translator trả về rỗng, fallback sang text gốc.");
+      return text;
+    }
 
-    return data[0]?.translation || text;
+    console.log(`🌐 Dịch thành công → ${targetLang}`);
+    return data[0].translation || text;
   } catch (err) {
-    console.error("Translate error:", err.message);
-    throw new Error(err.message);
+    console.error("❌ Translate error:", err.message);
+    return text;
   }
 }

@@ -37,7 +37,7 @@ export async function DocxFilter(ctx) {
     }
   }
 
-  const end = performance.now(); // ⏱️ Kết thúc đo
+  const end = performance.now(); // Kết thúc đo
   console.log(` DOCX generation time: ${(end - start).toFixed(2)} ms`);
 
   return ctx;

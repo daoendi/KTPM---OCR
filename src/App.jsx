@@ -1,155 +1,225 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
+import "./App.css";
+
+const MAX_FILES = 10;
 
 function App() {
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [results, setResults] = useState([]);
+  const [successfulResults, setSuccessfulResults] = useState([]);
+  const [failedResults, setFailedResults] = useState([]);
   const [status, setStatus] = useState("");
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [activeTab, setActiveTab] = useState("success");
   const fileInputRef = useRef(null);
   const targetLangRef = useRef(null);
   const outputFormatRef = useRef(null);
 
-  const handleFileChange = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length > 10) {
-      alert("Bạn chỉ có thể chọn tối đa 10 file.");
-      e.target.value = null; // Reset input
-      setSelectedFiles([]);
+  const handleFileChange = (files) => {
+    const newFiles = Array.from(files);
+    if (selectedFiles.length + newFiles.length > MAX_FILES) {
+      alert(`Bạn chỉ có thể tải lên tối đa ${MAX_FILES} tệp.`);
       return;
     }
-    setSelectedFiles(files);
-    setResults([]); // Clear previous results
+    setSelectedFiles((prevFiles) => [...prevFiles, ...newFiles]);
   };
+
+  const handleFileRemove = (fileName) => {
+    setSelectedFiles((prevFiles) =>
+      prevFiles.filter((file) => file.name !== fileName)
+    );
+  };
+
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const onDragLeave = useCallback(() => {
+    setIsDragOver(false);
+  }, []);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    handleFileChange(e.dataTransfer.files);
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (selectedFiles.length === 0) {
-      alert("Vui lòng chọn ít nhất một file!");
+      alert("Vui lòng chọn ít nhất một tệp!");
       return;
     }
 
-    setStatus(`Đang xử lý ${selectedFiles.length} file...`);
-    setResults([]); // Clear previous results before starting
+    setStatus(`Đang xử lý ${selectedFiles.length} tệp...`);
+    setSuccessfulResults([]);
+    setFailedResults([]);
 
-    const newResults = [];
+    const fd = new FormData();
+    selectedFiles.forEach((f) => fd.append("images", f));
+    fd.append("targetLang", targetLangRef.current.value);
+    fd.append("outputFormat", outputFormatRef.current.value);
 
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
-      setStatus(
-        `Đang xử lý file ${i + 1}/${selectedFiles.length}: ${file.name}`
-      );
+    try {
+      const res = await fetch("/api/convert-multi", {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
 
-      const fd = new FormData();
-      fd.append("image", file);
-      fd.append("targetLang", targetLangRef.current.value);
-      fd.append("outputFormat", outputFormatRef.current.value);
-      // Use original filename as the base for the output document title
-      const originalFileName = file.name.substring(
-        0,
-        file.name.lastIndexOf(".")
-      );
-      fd.append("docTitle", originalFileName);
-
-      try {
-        const res = await fetch("/api/convert", { method: "POST", body: fd });
-
-        if (!res.ok) {
-          const err = await res.json();
-          newResults.push({
-            originalName: file.name,
-            error: `Lỗi: ${err.error || "Không rõ"}`,
-          });
-          continue; // Move to the next file
-        }
-
-        const blob = await res.blob();
-        const cd = res.headers.get("Content-Disposition");
-        let filename = "output";
-        if (cd && cd.includes("filename=")) {
-          filename = cd.split("filename=")[1].replace(/"/g, "");
-        }
-
-        const url = window.URL.createObjectURL(blob);
-        newResults.push({
-          originalName: file.name,
-          downloadUrl: url,
-          downloadName: filename,
-        });
-      } catch (err) {
-        console.error(err);
-        newResults.push({
-          originalName: file.name,
-          error: "Lỗi khi gửi yêu cầu.",
-        });
-      } finally {
-        // Update results progressively
-        setResults([...newResults]);
+      if (!res.ok) {
+        setStatus(`Lỗi: ${data.error || "Lỗi không xác định"}`);
+        return;
       }
-    }
 
-    setStatus(`Hoàn tất xử lý ${selectedFiles.length} file.`);
+      setSuccessfulResults(
+        data.success.map((f) => ({
+          originalName: f.originalName,
+          downloadName: f.filename,
+          downloadUrl: `data:${f.mime};base64,${f.outputBase64}`,
+        }))
+      );
+      setFailedResults(data.failed || []);
+
+      setStatus(
+        `Hoàn tất ${data.success.length}/${
+          selectedFiles.length
+        } tệp. Thất bại: ${(data.failed || []).length}.`
+      );
+    } catch (err) {
+      console.error(err);
+      setStatus("Lỗi khi gửi yêu cầu.");
+    }
   };
 
   return (
-    <div className="container">
-      <h1>Trích xuất và Dịch văn bản (Hàng loạt)</h1>
-      <form id="upload-form" onSubmit={handleSubmit}>
-        <div className="option-group">
-          <h3>1. Chọn file ảnh hoặc PDF (tối đa 10 file)</h3>
+    <div className="app-container">
+      <header className="app-header">
+        <h1>Trình chuyển đổi OCR & Dịch thuật</h1>
+        <p>Chuyển đổi và dịch nhiều tệp một cách hiệu quả</p>
+      </header>
+
+      <form onSubmit={handleSubmit}>
+        <div
+          className={`dropzone ${isDragOver ? "drag-over" : ""}`}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          onClick={() => fileInputRef.current.click()}
+        >
+          <div className="dropzone-content">
+            <p>Kéo và thả tệp vào đây</p>
+            <p>hoặc</p>
+            <button type="button" className="browse-files-btn">
+              Duyệt tệp
+            </button>
+          </div>
           <input
             type="file"
-            id="image"
-            name="image"
-            accept="image/*,.pdf"
             ref={fileInputRef}
-            onChange={handleFileChange}
-            multiple // Allow multiple files
+            onChange={(e) => handleFileChange(e.target.files)}
+            multiple
+            hidden
+            accept="image/*,.pdf"
           />
         </div>
 
-        <div className="option-group">
-          <h3>2. Chọn ngôn ngữ đích</h3>
-          <select id="target-lang" name="targetLang" ref={targetLangRef}>
-            <option value="vie">Tiếng Việt</option>
-            <option value="eng">Tiếng Anh</option>
-            {/* Thêm các ngôn ngữ khác nếu cần */}
-          </select>
-        </div>
-
-        <div className="option-group">
-          <h3>3. Chọn định dạng đầu ra</h3>
-          <select id="output-format" name="outputFormat" ref={outputFormatRef}>
-            <option value="txt">Text (.txt)</option>
-            <option value="docx">Word (.docx)</option>
-            <option value="pdf">PDF (.pdf)</option>
-          </select>
-        </div>
-
-        <button type="submit">Chuyển đổi</button>
-      </form>
-      <div id="status">{status}</div>
-
-      {results.length > 0 && (
-        <div className="results-container">
-          <h3>Kết quả:</h3>
-          <ul>
-            {results.map((result, index) => (
-              <li key={index}>
-                <span>{result.originalName}</span>
-                {result.downloadUrl ? (
-                  <a
-                    href={result.downloadUrl}
-                    download={result.downloadName}
-                    className="download-btn"
-                  >
-                    Tải về
-                  </a>
-                ) : (
-                  <span className="error-msg">{result.error}</span>
-                )}
-              </li>
+        {selectedFiles.length > 0 && (
+          <div className="file-list">
+            <h4>Tệp đã chọn:</h4>
+            {selectedFiles.map((file, index) => (
+              <div key={index} className="file-item">
+                <span>{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => handleFileRemove(file.name)}
+                >
+                  &times;
+                </button>
+              </div>
             ))}
-          </ul>
+          </div>
+        )}
+
+        <div className="settings-grid">
+          <div className="select-box">
+            <label htmlFor="target-lang">Ngôn ngữ đích</label>
+            <select id="target-lang" ref={targetLangRef}>
+              <option value="vi">Tiếng Việt</option>
+              <option value="en">Tiếng Anh</option>
+              <option value="fr">Tiếng Pháp</option>
+              <option value="zh">Tiếng Trung</option>
+            </select>
+          </div>
+          <div className="select-box">
+            <label htmlFor="output-format">Định dạng đầu ra</label>
+            <select id="output-format" ref={outputFormatRef}>
+              <option value="pdf">PDF (.pdf)</option>
+              <option value="docx">Word (.docx)</option>
+              <option value="txt">Text (.txt)</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" className="submit-btn">
+          Chuyển đổi {selectedFiles.length} tệp
+        </button>
+      </form>
+
+      {status && (
+        <div
+          className={`status-message ${
+            successfulResults.length > 0 ? "success" : "error"
+          }`}
+        >
+          {status}
+        </div>
+      )}
+
+      {(successfulResults.length > 0 || failedResults.length > 0) && (
+        <div className="results-tabs">
+          <nav className="tabs-nav">
+            <button
+              className={`tab-btn ${activeTab === "success" ? "active" : ""}`}
+              onClick={() => setActiveTab("success")}
+            >
+              Thành công ({successfulResults.length})
+            </button>
+            <button
+              className={`tab-btn ${activeTab === "failed" ? "active" : ""}`}
+              onClick={() => setActiveTab("failed")}
+            >
+              Thất bại ({failedResults.length})
+            </button>
+          </nav>
+          <div className="tab-content">
+            {activeTab === "success" && (
+              <ul className="result-list">
+                {successfulResults.map((result, index) => (
+                  <li key={index} className="result-item">
+                    <span className="file-name">{result.originalName}</span>
+                    <a
+                      href={result.downloadUrl}
+                      download={result.downloadName}
+                      className="download-btn"
+                    >
+                      Tải về
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {activeTab === "failed" && (
+              <ul className="result-list">
+                {failedResults.map((result, index) => (
+                  <li key={index} className="result-item error-item">
+                    <span className="file-name">{result.originalName}</span>
+                    <span className="error-msg">{result.error}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
     </div>

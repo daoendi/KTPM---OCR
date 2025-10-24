@@ -15,6 +15,6 @@ export async function OCRFilter(ctx) {
   // fallback lang chuẩn
   const lang = ctx.lang || "eng+vie";
 
-  ctx.text = await ocrImageToText(ctx.buffer, lang);
+  ctx.text = await ocrImageToText(ctx.buffer, ctx.lang || "eng+vie");
   return ctx;
 }

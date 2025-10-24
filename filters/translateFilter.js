@@ -21,6 +21,8 @@ export async function TranslateFilter(ctx) {
     ctx.translated = ctx.text;
     ctx.detectedLang = "unknown";
   }
+  console.log("🔁 Đang chạy TranslateFilter...");
+  console.log("➡️ Văn bản OCR:", ctx.text.slice(0, 100));
 
   return ctx;
 }
