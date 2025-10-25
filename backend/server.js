@@ -31,6 +31,11 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ===============================
+// Phục vụ frontend
+// ===============================
+app.use(express.static(path.join(__dirname, "../frontend/dist")));
+
+// ===============================
 // API: Lấy / Reset thống kê cache
 // ===============================
 app.get("/api/cache-stats", (req, res) => res.json(getCacheStats()));
@@ -108,7 +113,7 @@ async function asyncPool(limit, array, iteratorFn) {
 }
 
 // Route batch xử lý song song
-app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
+app.post("/api/convert-multi", upload.array("images", 5), async (req, res) => {
   try {
     const { targetLang = "vi", outputFormat = "pdf" } = req.body;
     if (!req.files || req.files.length === 0) {
@@ -160,6 +165,13 @@ app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
     console.error("Lỗi xử lý batch:", err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ===============================
+// Catch-all cho client-side routing
+// ===============================
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
 });
 
 // ===============================

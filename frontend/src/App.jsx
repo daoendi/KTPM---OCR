@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import "./App.css";
 
-const MAX_FILES = 10;
+const MAX_FILES = 5;
 
 function App() {
   const [selectedFiles, setSelectedFiles] = useState([]);
