@@ -36,7 +36,7 @@ export async function TxtFilter(ctx) {
   }
 
   const end = performance.now(); //  Kết thúc đo
-  console.log(` TXT generation time: ${(end - start).toFixed(2)} ms`);
+  //  console.log(` TXT generation time: ${(end - start).toFixed(2)} ms`);
 
   return ctx;
 }

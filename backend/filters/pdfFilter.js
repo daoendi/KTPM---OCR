@@ -33,7 +33,7 @@ export async function PdfFilter(ctx) {
   }
 
   const end = performance.now(); //  Kết thúc đo
-  console.log(` PDF generation time: ${(end - start).toFixed(2)} ms`);
+  // console.log(` PDF generation time: ${(end - start).toFixed(2)} ms`);
 
   return ctx;
 }

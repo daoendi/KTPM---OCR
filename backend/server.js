@@ -3,7 +3,9 @@ import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// ===============================
 // Import pipeline & filters
+// ===============================
 import { runPipeline } from "./pipeline.js";
 import { CacheFilter } from "./filters/cacheFilter.js";
 import { OCRFilter } from "./filters/ocrFilter.js";
@@ -11,11 +13,12 @@ import { TranslateFilter } from "./filters/translateFilter.js";
 import { PdfFilter } from "./filters/pdfFilter.js";
 import { DocxFilter } from "./filters/docxFilter.js";
 import { TxtFilter } from "./filters/txtFilter.js";
+import { CacheStoreFilter } from "./filters/cacheStoreFilter.js";
 
-// Import thống kê cache
+// ===============================
+// Import thống kê cache & OCR worker lifecycle
+// ===============================
 import { getCacheStats, resetStats } from "./utils/cacheStats.js";
-
-// Import OCR worker lifecycle
 import { initWorker, terminateWorker } from "./utils/ocr.js";
 
 // ===============================
@@ -71,11 +74,13 @@ app.post("/api/convert", upload.single("image"), async (req, res) => {
       outputFormat,
     };
 
+    // ✅ Thêm cache filter đầu & cuối pipeline
     const result = await runPipeline(ctx, [
       CacheFilter,
       OCRFilter,
       TranslateFilter,
       exportFilter,
+      CacheStoreFilter,
     ]);
 
     res.setHeader("Content-Type", result.mime);
@@ -91,7 +96,7 @@ app.post("/api/convert", upload.single("image"), async (req, res) => {
 });
 
 // =====================================================
-// ✅ API mới: Xử lý nhiều file song song (tối đa 10, concurrency = 5)
+// ✅ API: Xử lý nhiều file song song (tối đa 10, concurrency = 5)
 // =====================================================
 const MAX_CONCURRENCY = Number(process.env.MAX_CONCURRENCY || 5);
 
@@ -113,7 +118,7 @@ async function asyncPool(limit, array, iteratorFn) {
 }
 
 // Route batch xử lý song song
-app.post("/api/convert-multi", upload.array("images", 5), async (req, res) => {
+app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
   try {
     const { targetLang = "vi", outputFormat = "pdf" } = req.body;
     if (!req.files || req.files.length === 0) {
@@ -136,11 +141,13 @@ app.post("/api/convert-multi", upload.array("images", 5), async (req, res) => {
           outputFormat,
         };
 
+        // ✅ Thêm cache filters vào batch pipeline
         const result = await runPipeline(ctx, [
           CacheFilter,
           OCRFilter,
           TranslateFilter,
           exportFilter,
+          CacheStoreFilter,
         ]);
 
         return {
@@ -148,6 +155,7 @@ app.post("/api/convert-multi", upload.array("images", 5), async (req, res) => {
           filename: result.filename,
           mime: result.mime,
           outputBase64: result.output.toString("base64"),
+          fromCache: result.fromCache || false,
         };
       }
     );
