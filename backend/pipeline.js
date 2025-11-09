@@ -20,22 +20,23 @@ import { performance } from "perf_hooks";
 // }
 
 export async function runPipeline(ctx, filters) {
+  // Bắt đầu đo thời gian thực thi toàn bộ pipeline
   const start = performance.now();
 
+  // Lặp qua từng Filter class trong mảng filters
   for (const Filter of filters) {
+    // Bắt đầu đo thời gian cho filter hiện tại
     const stepStart = performance.now();
+    // Thực thi filter và cập nhật context
     ctx = await Filter(ctx);
+    // Kết thúc đo thời gian và in ra console
     const stepEnd = performance.now();
     console.log(` ${Filter.name}: ${(stepEnd - stepStart).toFixed(2)} ms`);
-
-    // If the context is marked as fromCache, stop the pipeline immediately.
-    if (ctx.fromCache) {
-      console.log(" Cache hit, pipeline stopped early.");
-      break; // Exit the loop
-    }
   }
 
+  // Kết thúc đo thời gian và in ra tổng thời gian thực thi pipeline
   const end = performance.now();
   console.log(` Tổng thời gian pipeline: ${(end - start).toFixed(2)} ms`);
+  // Trả về context cuối cùng sau khi đã qua tất cả các filter (hoặc dừng giữa chừng)
   return ctx;
 }

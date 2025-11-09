@@ -1,44 +1,51 @@
+import crypto from "crypto";
 import { Document, Packer, Paragraph } from "docx";
 import { redisClient } from "../utils/redisClient.js";
+import { recordHit, recordMiss } from "../utils/cacheStats.js";
 
+/**
+ * Filter này chuyển đổi văn bản thành DOCX và tích hợp logic cache.
+ *
+ * @param {object} ctx - Đối tượng context của pipeline.
+ * @returns {Promise<object>} - Context đã được cập nhật với file DOCX.
+ */
 export async function DocxFilter(ctx) {
-  const start = performance.now(); // ⏱️ Bắt đầu đo
+  const content = ctx.translated ?? ctx.text ?? "";
+  const title = ctx.title || "Document";
 
-  let rawContent = ctx.translated ?? ctx.text ?? "";
-  if (Array.isArray(rawContent)) rawContent = rawContent.join("\n");
+  // 1. Tạo cache key
+  const exportKey = crypto
+    .createHash("sha256")
+    .update(String(content))
+    .update(title)
+    .update("docx")
+    .digest("hex");
 
-  const content = String(rawContent).split(/\r?\n/);
-  const doc = new Document({
-    sections: [{ children: content.map((line) => new Paragraph(line)) }],
-  });
+  // 2. Kiểm tra cache
+  const cachedOutput = await redisClient.get(exportKey);
 
-  const buffer = await Packer.toBuffer(doc);
-  ctx.output = buffer;
-  ctx.mime =
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  ctx.filename = `${ctx.title || "Document"}.docx`;
-
-  if (ctx.cacheKey && redisClient?.isOpen) {
-    try {
-      await redisClient.set(
-        ctx.cacheKey,
-        JSON.stringify({
-          text: ctx.text,
-          translated: ctx.translated,
-          mime: ctx.mime,
-          filename: ctx.filename,
-          output: ctx.output.toString("base64"),
-        }),
-        { EX: 60 * 60 }
-      );
-      console.log("✅ Saved DOCX to cache:", ctx.cacheKey);
-    } catch (e) {
-      console.error("❌ Error saving DOCX to cache:", e.message);
-    }
+  if (cachedOutput) {
+    // 3a. Cache hit
+    recordHit("export");
+    ctx.output = Buffer.from(cachedOutput, "base64");
+    ctx.exportFromCache = true;
+    console.log("   -> DOCX Export Cache hit.");
+  } else {
+    // 3b. Cache miss
+    recordMiss("export");
+    const lines = String(content).split(/\r?\n/);
+    const doc = new Document({
+      sections: [{ children: lines.map((line) => new Paragraph(line)) }],
+    });
+    ctx.output = await Packer.toBuffer(doc);
+    await redisClient.set(exportKey, ctx.output.toString("base64"));
+    ctx.exportFromCache = false;
+    console.log("   -> DOCX Export Cache miss, generating DOCX.");
   }
 
-  const end = performance.now(); // Kết thúc đo
-  //  console.log(` DOCX generation time: ${(end - start).toFixed(2)} ms`);
+  ctx.mime =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  ctx.filename = `${title}.docx`;
 
   return ctx;
 }
