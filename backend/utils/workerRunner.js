@@ -1,62 +1,140 @@
 // utils/workerRunner.js
 import { Worker } from "bullmq";
+import { performance } from "perf_hooks";
 import { runPipeline } from "../pipeline.js";
+import { CacheFilter } from "../filters/cacheFilter.js";
 import { OCRFilter } from "../filters/ocrFilter.js";
 import { TranslateFilter } from "../filters/translateFilter.js";
 import { PdfFilter } from "../filters/pdfFilter.js";
 import { DocxFilter } from "../filters/docxFilter.js";
 import { TxtFilter } from "../filters/txtFilter.js";
-import { CacheFilter } from "../filters/cacheFilter.js";
 import { CacheStoreFilter } from "../filters/cacheStoreFilter.js";
 import { redisClient } from "./redisClient.js";
+import { recordHistory } from "./history.js";
+import { initWorker, terminateWorker } from "./ocr.js";
+import { fileURLToPath } from "url";
 
-const connection = redisClient.duplicate();
-await connection.connect();
+let workerInstance = null;
+let connection = null;
 
-export const worker = new Worker(
-  "ocr-jobs",
-  async (job) => {
-    const { buffer, targetLang, title, outputFormat } = job.data;
+export async function startWorker(options = {}) {
+  const { concurrency = 3, limiter } = options;
+  if (workerInstance) return workerInstance;
 
-    let exportFilter = PdfFilter;
-    if (outputFormat === "docx") exportFilter = DocxFilter;
-    if (outputFormat === "txt") exportFilter = TxtFilter;
+  // duplicate redis connection for worker
+  connection = redisClient.duplicate();
+  await connection.connect();
 
-    const ctx = {
-      buffer: Buffer.from(buffer, "base64"),
-      lang: "eng+vie",
-      targetLang,
-      title,
-      outputFormat,
-    };
+  workerInstance = new Worker(
+    "ocr-jobs",
+    async (job) => {
+      const start = performance.now();
+      try {
+        const {
+          buffer: base64Buffer,
+          targetLang,
+          title,
+          outputFormat = "pdf",
+        } = job.data;
+        let buffer;
+        if (typeof base64Buffer === "string")
+          buffer = Buffer.from(base64Buffer, "base64");
+        else if (Buffer.isBuffer(base64Buffer)) buffer = base64Buffer;
+        else buffer = Buffer.from(base64Buffer || job.data.buffer || []);
 
-    const result = await runPipeline(ctx, [
-      CacheFilter,
-      OCRFilter,
-      TranslateFilter,
-      exportFilter,
-      CacheStoreFilter,
-    ]);
+        await job.updateProgress(10);
 
-    // Lưu kết quả vào Redis để client lấy
-    await redisClient.set(
-      `job:${job.id}:result`,
-      JSON.stringify({
-        filename: result.filename,
-        mime: result.mime,
-        outputBase64: result.output.toString("base64"),
-      }),
-      { EX: 3600 }
-    );
+        const fmt = String(outputFormat || "pdf").toLowerCase();
+        let exportFilter = PdfFilter;
+        if (fmt === "docx") exportFilter = DocxFilter;
+        else if (fmt === "txt") exportFilter = TxtFilter;
 
-    return { filename: result.filename };
-  },
-  { connection, concurrency: 3 } // 3 job cùng lúc
-);
+        const ctx = {
+          buffer,
+          lang: "eng+vie",
+          targetLang,
+          title: title || job.data.title || "Document",
+          outputFormat: fmt,
+        };
 
-worker.on("completed", (job) =>
-  console.log(`Job ${job.id} hoàn tất: ${job.returnvalue.filename}`)
-);
-worker.on("failed", (job, err) =>
-  console.error(`Job ${job.id} thất bại: ${err.message}`)
-);
+        await job.updateProgress(20);
+
+        const result = await runPipeline(ctx, [
+          CacheFilter,
+          OCRFilter,
+          TranslateFilter,
+          exportFilter,
+          CacheStoreFilter,
+        ]);
+
+        await job.updateProgress(80);
+
+        const historyId = await recordHistory({
+          originalName: title || job.data.title || "Document",
+          filename: result.filename,
+          mime: result.mime,
+          outputBase64: result.output.toString("base64"),
+          targetLang,
+          outputFormat: fmt,
+        });
+
+        await job.updateProgress(90);
+
+        await connection.set(
+          `job:${job.id}:result`,
+          JSON.stringify({
+            success: true,
+            filename: result.filename,
+            mime: result.mime,
+            outputBase64: result.output.toString("base64"),
+            historyId,
+            processingTime: Math.round(performance.now() - start),
+          }),
+          {
+            EX: 3600,
+          }
+        );
+
+        await job.updateProgress(100);
+
+        return { success: true, historyId };
+      } catch (err) {
+        console.error(`Job ${job.id} failed:`, err);
+        throw err;
+      }
+    },
+    {
+      connection,
+      concurrency,
+      limiter,
+    }
+  );
+
+  workerInstance.on("completed", (job) =>
+    console.log(`Job ${job.id} completed`)
+  );
+  workerInstance.on("failed", (job, err) =>
+    console.error(`Job ${job.id} failed: ${err?.message || err}`)
+  );
+
+  return workerInstance;
+}
+
+export async function stopWorker() {
+  if (workerInstance) {
+    try {
+      await workerInstance.close();
+    } catch (e) {
+      console.error("Error closing worker:", e);
+    }
+    workerInstance = null;
+  }
+  if (connection) {
+    try {
+      await connection.quit();
+    } catch (e) {
+      console.error("Error quitting connection:", e);
+    }
+    connection = null;
+  }
+}

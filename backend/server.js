@@ -164,10 +164,38 @@ app.post("/api/convert-async", upload.single("image"), async (req, res) => {
 app.get("/api/job/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await redisClient.get(`job:${id}:result`);
-    if (!result) return res.json({ status: "processing" });
-    const parsed = JSON.parse(result);
-    res.json({ status: "done", ...parsed });
+    const state = await getJobState(id);
+    res.json(state);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Hủy job đang chạy
+app.delete("/api/job/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const job = await jobQueue.getJob(id);
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    await job.remove();
+    res.json({ message: "Job cancelled" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Retry failed job
+app.post("/api/job/:id/retry", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const job = await jobQueue.getJob(id);
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    await job.retry();
+    res.json({ message: "Job queued for retry" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
