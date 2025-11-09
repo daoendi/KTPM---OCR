@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import "./App.css";
 
 const MAX_FILES = 5;
@@ -13,6 +13,26 @@ function App() {
   const fileInputRef = useRef(null);
   const targetLangRef = useRef(null);
   const outputFormatRef = useRef(null);
+  const [historyOpen, setHistoryOpen] = useState(true);
+  const [ocrHistory, setOcrHistory] = useState([]);
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ocr-history?limit=20");
+      if (!res.ok) return;
+      const data = await res.json();
+      setOcrHistory(data);
+    } catch (e) {
+      console.error("Failed to fetch history", e);
+    }
+  }, []);
+
+  // Tự động cập nhật lịch sử mỗi 5 giây
+  useEffect(() => {
+    fetchHistory();
+    const interval = setInterval(fetchHistory, 5000);
+    return () => clearInterval(interval);
+  }, [fetchHistory]);
 
   const handleFileChange = (files) => {
     const newFiles = Array.from(files);
@@ -86,6 +106,7 @@ function App() {
           selectedFiles.length
         } tệp. Thất bại: ${(data.failed || []).length}.`
       );
+      fetchHistory();
     } catch (err) {
       console.error(err);
       setStatus("Lỗi khi gửi yêu cầu.");
@@ -222,6 +243,88 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Floating OCR history widget */}
+      <div className={`ocr-history-widget ${historyOpen ? "open" : ""}`}>
+        <div className="ocr-history-header">
+          <strong>Lịch sử OCR</strong>
+          <div className="ocr-history-controls">
+            <button
+              title="Xóa lịch sử"
+              className="clear-btn"
+              onClick={async () => {
+                if (
+                  !confirm(
+                    "Bạn có chắc chắn muốn xóa toàn bộ lịch sử OCR không?"
+                  )
+                )
+                  return;
+                try {
+                  await fetch("/api/ocr-history/clear", { method: "POST" });
+                  setOcrHistory([]); // Xóa ngay lập tức ở UI
+                } catch (e) {
+                  console.error(e);
+                  alert("Không thể xóa lịch sử.");
+                }
+              }}
+            >
+              🗑️
+            </button>
+            <button
+              title="Làm mới"
+              onClick={async () => {
+                try {
+                  const res = await fetch("/api/ocr-history?limit=20");
+                  const data = await res.json();
+                  setOcrHistory(data);
+                } catch (e) {
+                  console.error(e);
+                }
+              }}
+            >
+              ⟳
+            </button>
+            <button onClick={() => setHistoryOpen((v) => !v)}>
+              {historyOpen ? "✕" : "☰"}
+            </button>
+          </div>
+        </div>
+        <div className="ocr-history-list">
+          {ocrHistory.length === 0 && (
+            <div className="empty">Chưa có lịch sử</div>
+          )}
+          {ocrHistory.map((item) => (
+            <div key={item.id} className="ocr-history-item">
+              <div className="left">
+                <div className="name">{item.originalName}</div>
+                <div className="meta">
+                  {new Date(item.ts).toLocaleString()} •{" "}
+                  {item.targetLang || item.targetLang}
+                </div>
+              </div>
+              <div className="actions">
+                <a
+                  href={`/api/ocr-history/${item.id}/download`}
+                  className="small-btn"
+                >
+                  Tải
+                </a>
+                <button
+                  className="small-btn"
+                  onClick={() => {
+                    window.open(
+                      `/api/ocr-history/${item.id}/download`,
+                      "_blank"
+                    );
+                  }}
+                >
+                  Xem
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

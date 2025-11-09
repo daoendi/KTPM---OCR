@@ -258,3 +258,91 @@ body {
   color: var(--error-color);
   text-decoration: line-through;
 }
+
+/* OCR history floating widget */
+.ocr-history-widget {
+  position: fixed;
+  right: 16px;
+  top: 16px;
+  width: 320px;
+  max-height: 70vh;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  font-size: 13px;
+  z-index: 9999;
+  transform-origin: top right;
+  transform: scale(0);
+  transition: transform 0.2s ease-out;
+}
+
+.ocr-history-widget.open {
+  transform: scale(1);
+}
+
+.ocr-history-widget .ocr-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: linear-gradient(90deg, #f7fbfb, #fff);
+}
+
+.ocr-history-widget .ocr-history-controls button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  margin-left: 6px;
+  font-size: 14px;
+}
+
+.ocr-history-widget .ocr-history-list {
+  max-height: calc(70vh - 48px);
+  overflow: auto;
+}
+
+.ocr-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.ocr-history-item .name {
+  font-weight: 600;
+}
+
+.ocr-history-item .meta {
+  font-size: 12px;
+  color: #666;
+}
+
+.ocr-history-item .actions {
+  display: flex;
+  gap: 6px;
+}
+
+.small-btn {
+  background: #f1f4f8;
+  border: 1px solid var(--border-color);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+
+.ocr-history-widget .empty {
+  padding: 12px;
+  text-align: center;
+  color: #777;
+}
+
+.ocr-history-widget.open {
+  transform: scale(1);
+}

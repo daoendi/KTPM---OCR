@@ -22,6 +22,7 @@ import { TxtFilter } from "./filters/txtFilter.js";
 // Import utils: cache stats, OCR worker, Redis, Queue
 // ===============================
 import { getCacheStats, resetStats } from "./utils/cacheStats.js";
+import { recordHistory } from "./utils/history.js";
 import { initWorker, terminateWorker } from "./utils/ocr.js";
 import { redisClient } from "./utils/redisClient.js";
 import { jobQueue } from "./utils/queue.js";
@@ -102,6 +103,20 @@ app.post("/api/convert", upload.single("image"), async (req, res) => {
       exportFilter,
       CacheStoreFilter,
     ]);
+
+    // Ghi lịch sử xử lý để hiển thị nhanh ở UI
+    try {
+      await recordHistory({
+        originalName: req.file.originalname,
+        filename: result.filename,
+        mime: result.mime,
+        outputBase64: result.output.toString("base64"),
+        targetLang,
+        outputFormat: fmt,
+      });
+    } catch (e) {
+      console.error("Failed to record history:", e);
+    }
 
     res.setHeader("Content-Type", result.mime);
     res.setHeader(
@@ -209,6 +224,23 @@ app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
           exportFilter,
           CacheStoreFilter,
         ]);
+        // ghi lịch sử từng file
+        try {
+          await recordHistory({
+            originalName: file.originalname,
+            filename: result.filename,
+            mime: result.mime,
+            outputBase64: result.output.toString("base64"),
+            targetLang,
+            outputFormat: fmt,
+          });
+        } catch (e) {
+          console.error(
+            "Failed to record history for file:",
+            file.originalname,
+            e
+          );
+        }
         return {
           originalName: file.originalname,
           filename: result.filename,
@@ -228,6 +260,52 @@ app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
     res.json({ success, failed, concurrency: MAX_CONCURRENCY });
   } catch (err) {
     console.error("Lỗi xử lý batch:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Lấy lịch sử OCR gần đây
+app.get("/api/ocr-history", async (req, res) => {
+  try {
+    const limit = Math.min(100, parseInt(req.query.limit || "50", 10));
+    const { getHistory } = await import("./utils/history.js");
+    // Mặc định bỏ qua base64 để tải nhanh hơn
+    const list = await getHistory(limit, true);
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Tải về nội dung lịch sử theo id
+app.get("/api/ocr-history/:id/download", async (req, res) => {
+  try {
+    const { getHistoryItem } = await import("./utils/history.js");
+    const id = req.params.id;
+    const item = await getHistoryItem(id);
+    if (!item) return res.status(404).json({ error: "Not found" });
+
+    const buf = Buffer.from(item.outputBase64 || "", "base64");
+    res.setHeader("Content-Type", item.mime || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${
+        item.filename || item.originalName || "download"
+      }"`
+    );
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Xóa toàn bộ lịch sử OCR
+app.post("/api/ocr-history/clear", async (req, res) => {
+  try {
+    const { clearHistory } = await import("./utils/history.js");
+    await clearHistory();
+    res.json({ message: "History cleared successfully" });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
