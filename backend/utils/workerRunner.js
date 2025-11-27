@@ -2,27 +2,29 @@
 import { Worker } from "bullmq";
 import { performance } from "perf_hooks";
 import { runPipeline } from "../pipeline.js";
-import { CacheFilter } from "../filters/cacheFilter.js";
+import { PreprocessFilter } from "../filters/preprocessFilter.js";
 import { OCRFilter } from "../filters/ocrFilter.js";
 import { TranslateFilter } from "../filters/translateFilter.js";
 import { PdfFilter } from "../filters/pdfFilter.js";
 import { DocxFilter } from "../filters/docxFilter.js";
 import { TxtFilter } from "../filters/txtFilter.js";
-import { CacheStoreFilter } from "../filters/cacheStoreFilter.js";
-import { redisClient } from "./redisClient.js";
+import IORedis from "ioredis";
 import { recordHistory } from "./history.js";
-import { initWorker, terminateWorker } from "./ocr.js";
-import { fileURLToPath } from "url";
 
 let workerInstance = null;
 let connection = null;
+const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 
 export async function startWorker(options = {}) {
   const { concurrency = 3, limiter } = options;
   if (workerInstance) return workerInstance;
 
   // duplicate redis connection for worker
-  connection = redisClient.duplicate();
+  connection = new IORedis(REDIS_URL, {
+    maxRetriesPerRequest: null,
+    connectionName: "ocr-worker",
+    lazyConnect: true,
+  });
   await connection.connect();
 
   workerInstance = new Worker(
@@ -60,11 +62,10 @@ export async function startWorker(options = {}) {
         await job.updateProgress(20);
 
         const result = await runPipeline(ctx, [
-          CacheFilter,
+          PreprocessFilter,
           OCRFilter,
           TranslateFilter,
           exportFilter,
-          CacheStoreFilter,
         ]);
 
         await job.updateProgress(80);
@@ -90,9 +91,8 @@ export async function startWorker(options = {}) {
             historyId,
             processingTime: Math.round(performance.now() - start),
           }),
-          {
-            EX: 3600,
-          }
+          "EX",
+          3600
         );
 
         await job.updateProgress(100);

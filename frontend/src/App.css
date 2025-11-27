@@ -84,6 +84,52 @@ body {
   box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
 }
 
+.mode-toggle {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.mode-option {
+  flex: 1 1 240px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  gap: 0.8rem;
+  background: #fdfdfd;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.mode-option input {
+  margin-top: 0.3rem;
+}
+
+.mode-option strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 0.2rem;
+}
+
+.mode-option span {
+  display: block;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.mode-option.active {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.15);
+}
+
+.mode-hint {
+  margin: 0.5rem 0 0;
+  color: #555;
+  font-size: 0.95rem;
+}
+
 .dropzone {
   border: 2px dashed var(--dropzone-border-color);
   border-radius: 12px;
@@ -181,6 +227,15 @@ body {
   color: #a92323;
 }
 
+.status-message.warning {
+  background-color: #fff4e5;
+  color: #8a4c00;
+}
+
+.status-message.warning .ghost-btn {
+  margin-top: 0.5rem;
+}
+
 .results-tabs {
   margin-top: 2.5rem;
 }
@@ -240,6 +295,144 @@ body {
   font-weight: 600;
 }
 
+.job-dashboard {
+  margin-top: 2.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  background: #fbfdff;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.section-header h3 {
+  margin: 0;
+  color: var(--primary-color);
+}
+
+.section-header p {
+  margin: 0.25rem 0 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.section-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ghost-btn {
+  border: 1px solid var(--border-color);
+  background: transparent;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-color);
+  transition: border-color 0.2s;
+}
+
+.ghost-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ghost-btn:not(:disabled):hover {
+  border-color: var(--primary-color);
+}
+
+.empty-panel {
+  padding: 1rem;
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  color: #777;
+  margin-top: 1rem;
+}
+
+.job-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.job-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1rem;
+  background: #fff;
+  flex-wrap: wrap;
+}
+
+.job-info {
+  flex: 1 1 55%;
+}
+
+.job-name {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.job-meta {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.progress-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #ecf0f5;
+  margin-top: 0.8rem;
+  overflow: hidden;
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  background: var(--primary-color);
+}
+
+.job-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.job-actions .download-btn {
+  text-decoration: none;
+}
+
+.retry-btn {
+  padding: 0.6rem 1.1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  background: var(--primary-color);
+  color: #fff;
+  transition: background-color 0.2s;
+}
+
+.retry-btn:hover {
+  background: #3a7bc8;
+}
+
+.retry-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .download-btn {
   padding: 0.6rem 1.2rem;
   background-color: var(--success-color);
@@ -257,6 +450,59 @@ body {
 .error-item .file-name {
   color: var(--error-color);
   text-decoration: line-through;
+}
+
+.cache-stats-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.2rem;
+  background: #fdfdfd;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.8rem;
+  text-align: center;
+  background: #fff;
+}
+
+.stat-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #777;
+}
+
+.cache-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 1rem 0;
+  background: #ececec;
+}
+
+.cache-bar .hit {
+  background: var(--success-color);
+}
+
+.cache-bar .miss {
+  background: var(--error-color);
+}
+
+.stat-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.9rem;
 }
 
 /* OCR history floating widget */

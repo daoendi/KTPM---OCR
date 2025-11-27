@@ -3,13 +3,12 @@ import { Worker } from "bullmq";
 import { performance } from "perf_hooks";
 import { redisClient } from "./redisClient.js";
 import { runPipeline } from "../pipeline.js";
-import { CacheFilter } from "../filters/cacheFilter.js";
+import { PreprocessFilter } from "../filters/preprocessFilter.js";
 import { OCRFilter } from "../filters/ocrFilter.js";
 import { TranslateFilter } from "../filters/translateFilter.js";
 import { PdfFilter } from "../filters/pdfFilter.js";
 import { DocxFilter } from "../filters/docxFilter.js";
 import { TxtFilter } from "../filters/txtFilter.js";
-import { CacheStoreFilter } from "../filters/cacheStoreFilter.js";
 import { initWorker, terminateWorker } from "./ocr.js";
 import { recordHistory } from "./history.js";
 
@@ -72,11 +71,10 @@ const worker = new Worker(
 
       // Chạy pipeline
       const result = await runPipeline(ctx, [
-        CacheFilter,
+        PreprocessFilter,
         OCRFilter,
         TranslateFilter,
         exportFilter,
-        CacheStoreFilter,
       ]);
 
       await job.updateProgress(80);

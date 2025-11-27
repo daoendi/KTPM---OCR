@@ -3,6 +3,8 @@ import { ocrImageToText } from "../utils/ocr.js";
 import { redisClient } from "../utils/redisClient.js";
 import { recordHit, recordMiss } from "../utils/cacheStats.js";
 
+const OCR_TEXT_CACHE_TTL = parseInt(process.env.CACHE_TEXT_TTL || "604800", 10); // default 7 days
+
 /**
  * Filter này thực hiện nhận dạng ký tự quang học (OCR) trên ảnh đầu vào.
  * Nó tích hợp logic cache: kiểm tra xem kết quả OCR đã tồn tại trong cache chưa,
@@ -17,31 +19,51 @@ export async function OCRFilter(ctx) {
   }
 
   const lang = ctx.lang || "eng+vie";
+  const preprocessedBuffer = ctx.preprocessedBuffer || ctx.buffer;
+  if (!ctx.preprocessedHash) {
+    ctx.preprocessedHash = crypto
+      .createHash("sha256")
+      .update(preprocessedBuffer)
+      .digest("hex");
+  }
 
-  // 1. Tạo cache key dựa trên nội dung ảnh và ngôn ngữ OCR
-  const ocrKey = crypto
-    .createHash("sha256")
-    .update(ctx.buffer)
-    .update(lang)
-    .digest("hex");
+  const ocrKey = `ocr:text:${ctx.preprocessedHash}:${lang}`;
+  const cachedPayload = await redisClient.get(ocrKey);
 
-  // 2. Kiểm tra cache
-  const cachedText = await redisClient.get(ocrKey);
-
-  if (cachedText) {
-    // 3a. Cache hit: Sử dụng kết quả từ cache
-    recordHit("ocr"); // Ghi nhận cache hit cho bước OCR
-    ctx.text = cachedText;
-    ctx.ocrFromCache = true; // Đánh dấu để biết kết quả này từ cache
+  if (cachedPayload) {
+    recordHit("ocr");
+    let payload;
+    try {
+      payload = JSON.parse(cachedPayload);
+    } catch (err) {
+      payload = { text: cachedPayload, meta: {} };
+    }
+    ctx.text = payload.text;
+    ctx.ocrMeta = payload.meta;
+    ctx.ocrFromCache = true;
     console.log("   -> OCR Cache hit.");
   } else {
-    // 3b. Cache miss: Chạy OCR và lưu vào cache
-    recordMiss("ocr"); // Ghi nhận cache miss cho bước OCR
-    ctx.text = await ocrImageToText(ctx.buffer, lang);
-    await redisClient.set(ocrKey, ctx.text); // Lưu kết quả vào Redis
+    recordMiss("ocr");
+    const text = await ocrImageToText(preprocessedBuffer, lang, {
+      preprocessed: Boolean(ctx.preprocessedBuffer),
+    });
+    ctx.text = text;
+    ctx.ocrMeta = { langDetected: lang };
     ctx.ocrFromCache = false;
+    try {
+      await redisClient.set(
+        ocrKey,
+        JSON.stringify({ text, meta: ctx.ocrMeta }),
+        "EX",
+        OCR_TEXT_CACHE_TTL
+      );
+    } catch (err) {
+      console.error("Failed to cache OCR text", err);
+    }
     console.log("   -> OCR Cache miss, running OCR.");
   }
+
+  ctx.textHash = crypto.createHash("sha256").update(ctx.text).digest("hex");
 
   return ctx;
 }

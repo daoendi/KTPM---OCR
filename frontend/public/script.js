@@ -27,7 +27,11 @@ document.getElementById("upload-form").addEventListener("submit", async (e) => {
   fd.append("docTitle", document.getElementById("doc-title").value);
 
   try {
-    const res = await fetch("/api/convert", { method: "POST", body: fd });
+    // Sync demo endpoint: blocks request until OCR finishes
+    const res = await fetch("/api/convert-sync", {
+      method: "POST",
+      body: fd,
+    });
 
     if (!res.ok) {
       const err = await res.json();

@@ -1,5 +1,6 @@
 import Tesseract from "tesseract.js";
 import sharp from "sharp";
+import { startWorker, stopWorker } from "./workerRunner.js";
 
 /**
  * Tiền xử lý ảnh bằng thư viện Sharp để cải thiện độ chính xác của OCR.
@@ -11,7 +12,7 @@ import sharp from "sharp";
  * @param {Buffer} buffer - Buffer của ảnh gốc.
  * @returns {Promise<Buffer>} - Buffer của ảnh đã được tiền xử lý.
  */
-async function preprocessImage(buffer) {
+export async function preprocessImage(buffer) {
   return sharp(buffer)
     .grayscale() // Chuyển sang ảnh xám
     .normalize() // Tăng cường độ tương phản
@@ -27,15 +28,16 @@ async function preprocessImage(buffer) {
  * @returns {Promise<string>} - Văn bản đã được nhận dạng.
  * @throws {Error} Nếu quá trình OCR gặp lỗi.
  */
-export async function ocrImageToText(buffer, lang = "eng+vie") {
+export async function ocrImageToText(buffer, lang = "eng+vie", options = {}) {
+  const { preprocessed = false } = options;
   try {
-    // Áp dụng các bước tiền xử lý cho ảnh.
-    const preprocessed = await preprocessImage(buffer);
+    // Áp dụng tiền xử lý nếu caller chưa làm.
+    const input = preprocessed ? buffer : await preprocessImage(buffer);
 
     // Gọi Tesseract để nhận dạng văn bản từ ảnh đã xử lý.
     const {
       data: { text },
-    } = await Tesseract.recognize(preprocessed, lang, {
+    } = await Tesseract.recognize(input, lang, {
       // Tắt logger để tránh in ra quá nhiều thông tin không cần thiết.
       logger: (m) => {},
     });
@@ -57,10 +59,10 @@ export async function ocrImageToText(buffer, lang = "eng+vie") {
  * với cấu trúc mã hiện tại mà không gây ra lỗi.
  */
 export async function initWorker() {
-  // Khi server khởi động, import module workerRunner để khởi tạo Worker
-  // (module có top-level await và sẽ tạo Worker khi được import).
   try {
-    await import("./workerRunner.js");
+    await startWorker({
+      concurrency: Number(process.env.WORKER_CONCURRENCY || "3"),
+    });
     console.log("Worker consumer đã được khởi tạo.");
   } catch (err) {
     console.error("Không thể khởi tạo worker:", err);
@@ -69,13 +71,9 @@ export async function initWorker() {
 }
 
 export async function terminateWorker() {
-  // Thực hiện đóng worker nếu module đã được import
   try {
-    const mod = await import("./workerRunner.js");
-    if (mod && mod.worker && typeof mod.worker.close === "function") {
-      await mod.worker.close();
-      console.log("Worker consumer đã đóng.");
-    }
+    await stopWorker();
+    console.log("Worker consumer đã đóng.");
   } catch (err) {
     console.error("Lỗi khi đóng worker:", err);
   }

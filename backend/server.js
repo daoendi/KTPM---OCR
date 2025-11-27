@@ -4,14 +4,12 @@ import multer from "multer";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import { performance } from "perf_hooks";
 
 // ===============================
 // Import pipeline & filters
 // ===============================
 import { runPipeline } from "./pipeline.js";
-import { CacheFilter } from "./filters/cacheFilter.js";
-import { CacheStoreFilter } from "./filters/cacheStoreFilter.js";
+import { PreprocessFilter } from "./filters/preprocessFilter.js";
 import { OCRFilter } from "./filters/ocrFilter.js";
 import { TranslateFilter } from "./filters/translateFilter.js";
 import { PdfFilter } from "./filters/pdfFilter.js";
@@ -26,7 +24,7 @@ import { recordHistory } from "./utils/history.js";
 import { initWorker, terminateWorker } from "./utils/ocr.js";
 import { redisClient } from "./utils/redisClient.js";
 import { jobQueue } from "./utils/queue.js";
-
+import { getJobState } from "./utils/jobState.js";
 // ===============================
 // Cấu hình đường dẫn
 // ===============================
@@ -46,7 +44,7 @@ app.use(express.static(path.join(__dirname, "../frontend/dist")));
 // ===============================
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 10 }, // 10MB/file
+  limits: { fileSize: 50 * 1024 * 1024, files: 10 }, // 50MB/file
   fileFilter: (req, file, cb) => {
     const ok = /image\/(png|jpeg|jpg|bmp|tiff|webp)/i.test(file.mimetype);
     if (!ok) return cb(new Error("Chỉ chấp nhận ảnh PNG/JPEG/BMP/TIFF/WEBP"));
@@ -72,8 +70,9 @@ app.post("/api/cache-reset", (req, res) => {
 
 // =====================================================
 // API: Xử lý 1 file (đồng bộ - chạy trực tiếp pipeline)
+// Dùng cho demo hoặc file nhỏ vì request sẽ bị chặn cho tới khi OCR hoàn tất.
 // =====================================================
-app.post("/api/convert", upload.single("image"), async (req, res) => {
+app.post("/api/convert-sync", upload.single("image"), async (req, res) => {
   try {
     if (!req.file)
       return res.status(400).json({ error: "Thiếu file ảnh để xử lý." });
@@ -97,11 +96,10 @@ app.post("/api/convert", upload.single("image"), async (req, res) => {
     };
 
     const result = await runPipeline(ctx, [
-      CacheFilter,
+      PreprocessFilter,
       OCRFilter,
       TranslateFilter,
       exportFilter,
-      CacheStoreFilter,
     ]);
 
     // Ghi lịch sử xử lý để hiển thị nhanh ở UI
@@ -234,8 +232,11 @@ app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
     if (fmt === "docx") exportFilter = DocxFilter;
     else if (fmt === "txt") exportFilter = TxtFilter;
 
+    // Use number of uploaded files as concurrency limit to avoid artificial caps
+    const concurrencyLimit = Math.max(1, req.files.length || MAX_CONCURRENCY);
+
     const results = await asyncPool(
-      MAX_CONCURRENCY,
+      concurrencyLimit,
       req.files,
       async (file) => {
         const ctx = {
@@ -246,11 +247,10 @@ app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
           outputFormat: fmt,
         };
         const result = await runPipeline(ctx, [
-          CacheFilter,
+          PreprocessFilter,
           OCRFilter,
           TranslateFilter,
           exportFilter,
-          CacheStoreFilter,
         ]);
         // ghi lịch sử từng file
         try {
@@ -278,12 +278,22 @@ app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
       }
     );
 
-    const success = results
-      .filter((r) => r.status === "fulfilled")
-      .map((r) => r.value);
-    const failed = results
-      .filter((r) => r.status === "rejected")
-      .map((r) => r.reason?.message || "Unknown error");
+    const decorated = results.map((res, idx) => ({
+      res,
+      file: req.files[idx],
+      index: idx,
+    }));
+
+    const success = decorated
+      .filter(({ res }) => res.status === "fulfilled")
+      .map(({ res }) => res.value);
+
+    const failed = decorated
+      .filter(({ res }) => res.status === "rejected")
+      .map(({ res, file, index }) => ({
+        originalName: file?.originalname || `File ${index + 1}`,
+        error: res.reason?.message || "Unknown error",
+      }));
 
     res.json({ success, failed, concurrency: MAX_CONCURRENCY });
   } catch (err) {
@@ -358,19 +368,35 @@ app.use((err, req, res, next) => {
 // ===============================
 // Khởi động server
 // ===============================
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || "3000", 10);
 
 (async () => {
   try {
     console.log("Khởi tạo OCR worker...");
     await initWorker();
-    app.listen(PORT, () => {
-      console.log(`🚀 API server chạy tại http://localhost:${PORT}`);
-      console.log(`⚙️  Giới hạn đồng thời: ${MAX_CONCURRENCY}`);
+    await new Promise((resolve, reject) => {
+      const server = app.listen(PORT, () => {
+        console.log(`🚀 API server chạy tại http://localhost:${PORT}`);
+        console.log(`⚙️  Giới hạn đồng thời: ${MAX_CONCURRENCY}`);
+        resolve(server);
+      });
+      server.on("error", (err) => {
+        if (err.code === "EADDRINUSE") {
+          console.error(
+            `Cổng ${PORT} đang được sử dụng. Hãy tắt tiến trình khác hoặc đặt PORT khác rồi thử lại.`
+          );
+        }
+        reject(err);
+      });
     });
 
     process.on("SIGINT", async () => {
       console.log("\nĐang tắt server, giải phóng worker...");
+      await terminateWorker();
+      process.exit(0);
+    });
+    process.on("SIGTERM", async () => {
+      console.log("\nSIGTERM nhận được, đang tắt server...");
       await terminateWorker();
       process.exit(0);
     });
