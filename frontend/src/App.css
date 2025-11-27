@@ -164,6 +164,24 @@ body {
   margin-top: 1.5rem;
 }
 
+/* scrollable selected files area */
+.file-list .file-list-scroll {
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+/* scrollable result lists in tabs */
+.scroll-list {
+  max-height: 340px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.file-item.compact {
+  padding: 0.6rem 0.8rem;
+}
+
 .file-item {
   display: flex;
   align-items: center;
@@ -510,7 +528,7 @@ body {
   position: fixed;
   right: 16px;
   top: 16px;
-  width: 320px;
+  width: 360px;
   max-height: 70vh;
   background: #fff;
   border: 1px solid var(--border-color);
@@ -530,41 +548,68 @@ body {
 
 .ocr-history-widget .ocr-history-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
   background: linear-gradient(90deg, #f7fbfb, #fff);
 }
 
-.ocr-history-widget .ocr-history-controls button {
-  border: none;
-  background: transparent;
+.ocr-history-header > strong {
+  display: block;
+  font-size: 15px;
+  margin: 0;
+  min-width: 0;
+}
+
+.ocr-history-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ocr-history-controls button {
+  border: 1px solid var(--border-color);
+  background: #fff;
+  padding: 6px 8px;
+  border-radius: 8px;
   cursor: pointer;
-  margin-left: 6px;
-  font-size: 14px;
+  font-size: 13px;
+}
+
+.ocr-history-controls .clear-btn {
+  background: #fff6f6;
 }
 
 .ocr-history-widget .ocr-history-list {
-  max-height: calc(70vh - 48px);
+  max-height: calc(70vh - 56px);
   overflow: auto;
+  padding: 8px 10px 12px 10px;
 }
 
 .ocr-history-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 8px 10px;
+  align-items: flex-start;
+  padding: 10px 8px;
   border-bottom: 1px dashed var(--border-color);
+  gap: 8px;
+}
+
+.ocr-history-item .left {
+  flex: 1 1 auto;
 }
 
 .ocr-history-item .name {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.1;
 }
 
 .ocr-history-item .meta {
   font-size: 12px;
   color: #666;
+  margin-top: 4px;
 }
 
 .ocr-history-item .actions {
@@ -591,4 +636,32 @@ body {
 
 .ocr-history-widget.open {
   transform: scale(1);
+}
+
+/* Search input inside the history header */
+.ocr-history-search {
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 13px;
+  width: 160px;
+}
+
+/* Floating reopen toggle when history widget is closed */
+.ocr-history-toggle {
+  position: fixed;
+  right: 16px;
+  top: 16px;
+  z-index: 10001;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
 }

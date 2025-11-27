@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import "./App.css";
 import FileDropzone from "./components/FileDropzone";
-import ModeToggle from "./components/ModeToggle";
 import CacheStatsPanel from "./components/CacheStatsPanel";
 const ACTIVE_JOB_STATES = new Set([
   "waiting",
@@ -34,7 +33,7 @@ function App() {
   const [status, setStatus] = useState("");
   const [isDragOver, setIsDragOver] = useState(false);
   const [activeTab, setActiveTab] = useState("success");
-  const [processingMode, setProcessingMode] = useState("sync");
+  // always use async mode
   const [jobs, setJobs] = useState([]);
   const [cacheStats, setCacheStats] = useState(null);
   const [apiOnline, setApiOnline] = useState(true);
@@ -45,6 +44,8 @@ function App() {
   const jobsRef = useRef([]);
   const [historyOpen, setHistoryOpen] = useState(true);
   const [ocrHistory, setOcrHistory] = useState([]);
+  const [historySearch, setHistorySearch] = useState("");
+  // Lists are scrollable; no expand/collapse needed
 
   const markApiOffline = useCallback((message = "") => {
     setApiOnline(false);
@@ -229,6 +230,71 @@ function App() {
     return () => clearInterval(interval);
   }, [apiOnline, updateJobFromServer]);
 
+  // Derived async job lists for unified UI
+  const asyncProcessingJobs = jobs.filter((j) => isJobInFlight(j.state));
+  const asyncCompletedJobs = jobs.filter(
+    (j) => j.state === "completed" && j.result?.outputBase64
+  );
+  const asyncFailedJobs = jobs.filter((j) => j.state === "failed");
+  // combined processing count: processingList (temps + jobId entries) + any in-flight jobs not yet in processingList
+  const processingCount =
+    processingList.length +
+    asyncProcessingJobs.filter(
+      (j) => !processingList.some((p) => p.jobId === j.jobId)
+    ).length;
+
+  // Build combined lists for tabs (so we can slice for previews)
+  const combinedProcessingItems = (() => {
+    const tempItems = processingList.map((p, idx) => ({
+      key: p.jobId ? `job-${p.jobId}` : `temp-${p.tempId || idx}`,
+      originalName: p.originalName,
+      jobId: p.jobId,
+      temp: !p.jobId,
+    }));
+    const extraAsync = asyncProcessingJobs
+      .filter((j) => !processingList.some((p) => p.jobId === j.jobId))
+      .map((j) => ({
+        key: `job-${j.jobId}`,
+        originalName: j.originalName,
+        jobId: j.jobId,
+        temp: false,
+      }));
+    return [...tempItems, ...extraAsync];
+  })();
+
+  const combinedSuccessItems = (() => {
+    const sync = successfulResults.map((r, i) => ({
+      key: `sr-${i}`,
+      originalName: r.originalName,
+      downloadUrl: r.downloadUrl,
+      downloadName: r.downloadName,
+      isAsync: false,
+    }));
+    const asyncs = asyncCompletedJobs.map((j) => ({
+      key: `aj-${j.jobId}`,
+      originalName: j.originalName,
+      job: j,
+      isAsync: true,
+    }));
+    return [...sync, ...asyncs];
+  })();
+
+  const combinedFailedItems = (() => {
+    const sync = (failedResults || []).map((r, i) => ({
+      key: `fr-${i}`,
+      originalName: r.originalName,
+      error: r.error,
+      isAsync: false,
+    }));
+    const asyncs = asyncFailedJobs.map((j) => ({
+      key: `fj-${j.jobId}`,
+      originalName: j.originalName,
+      job: j,
+      isAsync: true,
+    }));
+    return [...sync, ...asyncs];
+  })();
+
   const refreshJobs = useCallback(
     (force = false) => {
       if (!force && !apiOnline) return;
@@ -306,6 +372,29 @@ function App() {
     document.body.removeChild(link);
   };
 
+  const openHistoryPreview = async (id) => {
+    try {
+      const res = await fetch(`/api/ocr-history/${id}/download`);
+      if (!res.ok) {
+        throw new Error("Không thể mở file");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      // revoke after a minute
+      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+      markApiOnline();
+    } catch (e) {
+      if (isNetworkError(e)) {
+        markApiOffline("Không thể kết nối API khi mở file lịch sử.");
+        alert("API không phản hồi, không thể mở file.");
+      } else {
+        console.error(e);
+        alert("Không thể mở file lịch sử.");
+      }
+    }
+  };
+
   const jobStateLabel = (state) => {
     switch (state) {
       case "completed":
@@ -328,14 +417,10 @@ function App() {
       return;
     }
 
-    setStatus(
-      processingMode === "sync"
-        ? `Đang xử lý ${selectedFiles.length} tệp...`
-        : `Đang tạo ${selectedFiles.length} job async...`
-    );
+    setStatus(`Đang tạo ${selectedFiles.length} job async...`);
     setSuccessfulResults([]);
     setFailedResults([]);
-    // Mark all selected files as processing
+    // mark temp processing entries so user sees immediate items
     const now = Date.now();
     setProcessingList(
       selectedFiles.map((f, idx) => ({
@@ -347,126 +432,74 @@ function App() {
     const targetLang = targetLangRef.current.value;
     const outputFormat = outputFormatRef.current.value;
 
-    if (processingMode === "async") {
-      const newJobs = [];
-      const failures = [];
-      let networkFailed = false;
+    const newJobs = [];
+    const failures = [];
+    let networkFailed = false;
 
-      for (const file of selectedFiles) {
-        const fd = new FormData();
-        fd.append("image", file);
-        fd.append("targetLang", targetLang);
-        fd.append("outputFormat", outputFormat);
-        const docTitle = file.name.replace(/\.[^.]+$/, "") || "Document";
-        fd.append("docTitle", docTitle);
-        try {
-          const res = await fetch("/api/convert-async", {
-            method: "POST",
-            body: fd,
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.error || "Không thể tạo job");
-          }
-          newJobs.push({
-            jobId: data.jobId,
-            originalName: file.name,
-            title: docTitle,
-            state: "waiting",
-            progress: 0,
-            targetLang,
-            outputFormat,
-            createdAt: Date.now(),
-          });
-          // add to processing list by jobId so we can move it later
-          setProcessingList((prev) => [
-            { originalName: file.name, jobId: data.jobId },
-            ...prev,
-          ]);
-          markApiOnline();
-        } catch (err) {
-          if (isNetworkError(err)) {
-            markApiOffline("Không thể kết nối API khi tạo job async.");
-            failures.push({ name: file.name, reason: "API không phản hồi." });
-            networkFailed = true;
-            break;
-          }
-          console.error(err);
-          failures.push({ name: file.name, reason: err.message });
+    for (const file of selectedFiles) {
+      const fd = new FormData();
+      fd.append("image", file);
+      fd.append("targetLang", targetLang);
+      fd.append("outputFormat", outputFormat);
+      const docTitle = file.name.replace(/\.[^.]+$/, "") || "Document";
+      fd.append("docTitle", docTitle);
+      try {
+        const res = await fetch("/api/convert-async", {
+          method: "POST",
+          body: fd,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Không thể tạo job");
         }
-      }
-
-      if (newJobs.length) {
-        setJobs((prev) => [...newJobs, ...prev]);
-        setStatus(
-          `Đã thêm ${newJobs.length} job async. Dashboard sẽ tự cập nhật.`
-        );
-      }
-      if (failures.length) {
-        setStatus(
-          (prev) =>
-            `${prev} • Không thể tạo ${failures.length} job: ${failures
-              .map((f) => f.name)
-              .join(", ")}`
-        );
-      }
-      if (networkFailed) {
-        setStatus("Backend không phản hồi. Hãy bật server rồi thử lại.");
-      }
-      setSelectedFiles([]);
-      return;
-    }
-
-    const fd = new FormData();
-    selectedFiles.forEach((f) => fd.append("images", f));
-    fd.append("targetLang", targetLang);
-    fd.append("outputFormat", outputFormat);
-
-    try {
-      const res = await fetch("/api/convert-multi", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setStatus(`Lỗi: ${data.error || "Lỗi không xác định"}`);
-        return;
-      }
-      markApiOnline();
-
-      setSuccessfulResults(
-        data.success.map((f) => ({
-          originalName: f.originalName,
-          downloadName: f.filename,
-          downloadUrl: `data:${f.mime};base64,${f.outputBase64}`,
-        }))
-      );
-      setFailedResults(data.failed || []);
-      // clear processing list entries that match returned originals
-      setProcessingList((prev) =>
-        prev.filter(
-          (p) =>
-            !data.success.some((s) => s.originalName === p.originalName) &&
-            !(data.failed || []).some((f) => f.originalName === p.originalName)
-        )
-      );
-
-      setStatus(
-        `Hoàn tất ${data.success.length}/${
-          selectedFiles.length
-        } tệp. Thất bại: ${(data.failed || []).length}.`
-      );
-      fetchHistory();
-    } catch (err) {
-      if (isNetworkError(err)) {
-        markApiOffline("Không thể kết nối API khi chạy chế độ sync.");
-        setStatus("Backend không phản hồi. Hãy bật server rồi thử lại.");
-      } else {
+        newJobs.push({
+          jobId: data.jobId,
+          originalName: file.name,
+          title: docTitle,
+          state: "waiting",
+          progress: 0,
+          targetLang,
+          outputFormat,
+          createdAt: Date.now(),
+        });
+        // add to processing list by jobId so we can move it later
+        // remove any temp (no jobId) entries for the same originalName
+        setProcessingList((prev) => [
+          { originalName: file.name, jobId: data.jobId },
+          ...prev.filter((p) => !(p.originalName === file.name && !p.jobId)),
+        ]);
+        markApiOnline();
+      } catch (err) {
+        if (isNetworkError(err)) {
+          markApiOffline("Không thể kết nối API khi tạo job async.");
+          failures.push({ name: file.name, reason: "API không phản hồi." });
+          networkFailed = true;
+          break;
+        }
         console.error(err);
-        setStatus("Lỗi khi gửi yêu cầu.");
+        failures.push({ name: file.name, reason: err.message });
       }
     }
+
+    if (newJobs.length) {
+      setJobs((prev) => [...newJobs, ...prev]);
+      setStatus(
+        `Đã thêm ${newJobs.length} job async. Dashboard sẽ tự cập nhật.`
+      );
+    }
+    if (failures.length) {
+      setStatus(
+        (prev) =>
+          `${prev} • Không thể tạo ${failures.length} job: ${failures
+            .map((f) => f.name)
+            .join(", ")}`
+      );
+    }
+    if (networkFailed) {
+      setStatus("Backend không phản hồi. Hãy bật server rồi thử lại.");
+    }
+    setSelectedFiles([]);
+    return;
   };
 
   return (
@@ -504,21 +537,12 @@ function App() {
           </div>
         </div>
 
-        <ModeToggle
-          processingMode={processingMode}
-          setProcessingMode={setProcessingMode}
-        />
-
         <p className="mode-hint">
-          {processingMode === "sync"
-            ? "Sync path = phản hồi nhanh nhưng blocking."
-            : "Async path = đẩy job vào MQ, UI poll /api/job/:id và có thể hủy job."}
+          Async mode only — tất cả tệp sẽ tạo job async.
         </p>
 
         <button type="submit" className="submit-btn">
-          {processingMode === "sync"
-            ? `Chạy sync (${selectedFiles.length || 0} tệp)`
-            : `Đẩy job async (${selectedFiles.length || 0} tệp)`}
+          {`Đẩy job async (${selectedFiles.length || 0} tệp)`}
         </button>
       </form>
 
@@ -560,7 +584,7 @@ function App() {
               }`}
               onClick={() => setActiveTab("processing")}
             >
-              Đang xử lý ({processingList.length})
+              Đang xử lý ({processingCount})
             </button>
             <button
               className={`tab-btn ${activeTab === "success" ? "active" : ""}`}
@@ -583,42 +607,103 @@ function App() {
           </nav>
           <div className="tab-content">
             {activeTab === "processing" && (
-              <ul className="result-list">
-                {processingList.map((p, index) => (
-                  <li
-                    key={p.jobId || p.tempId || index}
-                    className="result-item processing-item"
-                  >
-                    <span className="file-name">{p.originalName}</span>
-                    <span className="processing-tag">Đang xử lý...</span>
-                  </li>
-                ))}
+              <ul className="result-list scroll-list">
+                {combinedProcessingItems.map((p) => {
+                  const job = p.jobId
+                    ? jobs.find((j) => j.jobId === p.jobId)
+                    : null;
+                  const progress = job
+                    ? Math.min(100, Math.max(0, job.progress || 0))
+                    : 0;
+                  return (
+                    <li key={p.key} className="result-item processing-item">
+                      <div className="processing-left">
+                        <span className="file-name">{p.originalName}</span>
+                        <div className="processing-meta">
+                          {p.jobId ? `Job #${p.jobId}` : "Queued"}
+                        </div>
+                      </div>
+                      <div className="processing-right">
+                        <div className="progress-track small">
+                          <span style={{ width: `${progress}%` }} />
+                        </div>
+                        <div className="progress-percent">{progress}%</div>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             {activeTab === "success" && (
-              <ul className="result-list">
-                {successfulResults.map((result, index) => (
-                  <li key={index} className="result-item">
-                    <span className="file-name">{result.originalName}</span>
-                    <a
-                      href={result.downloadUrl}
-                      download={result.downloadName}
-                      className="download-btn"
-                    >
-                      Tải về
-                    </a>
-                  </li>
-                ))}
+              <ul className="result-list scroll-list">
+                {combinedSuccessItems.map((it) => {
+                  if (!it.isAsync) {
+                    return (
+                      <li key={it.key} className="result-item">
+                        <span className="file-name">{it.originalName}</span>
+                        <a
+                          href={it.downloadUrl}
+                          download={it.downloadName}
+                          className="download-btn"
+                        >
+                          Tải về
+                        </a>
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={it.key} className="result-item">
+                      <span className="file-name">{it.originalName}</span>
+                      <button
+                        type="button"
+                        className="download-btn"
+                        onClick={() => downloadJobResult(it.job)}
+                      >
+                        Tải về
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             {activeTab === "failed" && (
-              <ul className="result-list">
-                {failedResults.map((result, index) => (
-                  <li key={index} className="result-item error-item">
-                    <span className="file-name">{result.originalName}</span>
-                    <span className="error-msg">{result.error}</span>
-                  </li>
-                ))}
+              <ul className="result-list scroll-list">
+                {combinedFailedItems.map((it) => {
+                  if (!it.isAsync) {
+                    return (
+                      <li key={it.key} className="result-item error-item">
+                        <span className="file-name">{it.originalName}</span>
+                        <span className="error-msg">{it.error}</span>
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={it.key} className="result-item error-item">
+                      <span className="file-name">{it.originalName}</span>
+                      <span className="error-msg">
+                        {it.job.result?.error || "Thất bại"}
+                      </span>
+                      <div className="job-actions">
+                        <button
+                          type="button"
+                          className="retry-btn"
+                          onClick={() => retryJob(it.job.jobId)}
+                          disabled={!apiOnline}
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => cancelJob(it.job.jobId)}
+                          disabled={!apiOnline}
+                        >
+                          Xóa
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             {activeTab === "stats" && (
@@ -631,180 +716,109 @@ function App() {
         </div>
       )}
 
-      <section className="job-dashboard">
-        <div className="section-header">
-          <div>
-            <h3>Async Job Dashboard</h3>
-            <p>Theo dõi tiến trình các job được tạo qua /api/convert-async</p>
-          </div>
-          <div className="section-actions">
-            <button
-              type="button"
-              className="ghost-btn"
-              onClick={() => refreshJobs(true)}
-              disabled={!jobs.length}
-            >
-              Làm mới
-            </button>
-          </div>
-        </div>
-        {jobs.length === 0 ? (
-          <div className="empty-panel">
-            Chưa có job async. Chọn chế độ Async rồi gửi file để xem dashboard.
-          </div>
-        ) : (
-          <ul className="job-list">
-            {jobs.map((job) => {
-              const progress = Math.min(100, Math.max(0, job.progress || 0));
-              const stateLabel = jobStateLabel(job.state);
-              const canCancel = isJobInFlight(job.state);
-              const canRetry = job.state === "failed";
-              const readyToDownload =
-                job.state === "completed" && job.result?.outputBase64;
-              return (
-                <li key={job.jobId} className={`job-item state-${job.state}`}>
-                  <div className="job-info">
-                    <div className="job-name">{job.originalName}</div>
-                    <div className="job-meta">
-                      #{job.jobId} • {stateLabel} • {progress}%
-                    </div>
-                    <div className="job-meta">
-                      {job.targetLang?.toUpperCase()} • {job.outputFormat}
-                    </div>
-                    <div className="progress-track">
-                      <span style={{ width: `${progress}%` }} />
-                    </div>
-                  </div>
-                  <div className="job-actions">
-                    {readyToDownload ? (
-                      <button
-                        type="button"
-                        className="download-btn"
-                        onClick={() => downloadJobResult(job)}
-                      >
-                        Tải kết quả
-                      </button>
-                    ) : canRetry ? (
-                      <>
-                        <button
-                          type="button"
-                          className="retry-btn"
-                          onClick={() => retryJob(job.jobId)}
-                          disabled={!apiOnline}
-                        >
-                          Retry job
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost-btn"
-                          onClick={() => cancelJob(job.jobId)}
-                          disabled={!apiOnline}
-                        >
-                          Xoá job
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        className="ghost-btn"
-                        onClick={() => cancelJob(job.jobId)}
-                        disabled={!apiOnline || !canCancel}
-                      >
-                        Huỷ job
-                      </button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      {/* Async jobs are now merged into the unified tabs above. */}
 
       {/* Floating OCR history widget */}
       <div className={`ocr-history-widget ${historyOpen ? "open" : ""}`}>
         <div className="ocr-history-header">
-          <strong>Lịch sử OCR</strong>
-          <div className="ocr-history-controls">
-            <button
-              title="Xóa lịch sử"
-              className="clear-btn"
-              onClick={async () => {
-                if (
-                  !confirm(
-                    "Bạn có chắc chắn muốn xóa toàn bộ lịch sử OCR không?"
+          <strong>Lịch sử</strong>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              className="ocr-history-search"
+              placeholder="Tìm theo tên..."
+              value={historySearch}
+              onChange={(e) => setHistorySearch(e.target.value)}
+            />
+            <div className="ocr-history-controls">
+              <button
+                title="Xóa lịch sử"
+                className="clear-btn"
+                onClick={async () => {
+                  if (
+                    !confirm(
+                      "Bạn có chắc chắn muốn xóa toàn bộ lịch sử OCR không?"
+                    )
                   )
-                )
-                  return;
-                try {
-                  const res = await fetch("/api/ocr-history/clear", {
-                    method: "POST",
-                  });
-                  if (!res.ok) throw new Error("Clear history failed");
-                  setOcrHistory([]); // Xóa ngay lập tức ở UI
-                  markApiOnline();
-                } catch (e) {
-                  if (isNetworkError(e)) {
-                    markApiOffline("Không thể kết nối API khi xóa lịch sử.");
-                    alert("API không phản hồi, không thể xóa lịch sử.");
-                  } else {
-                    console.error(e);
-                    alert("Không thể xóa lịch sử.");
+                    return;
+                  try {
+                    const res = await fetch("/api/ocr-history/clear", {
+                      method: "POST",
+                    });
+                    if (!res.ok) throw new Error("Clear history failed");
+                    setOcrHistory([]); // Xóa ngay lập tức ở UI
+                    markApiOnline();
+                  } catch (e) {
+                    if (isNetworkError(e)) {
+                      markApiOffline("Không thể kết nối API khi xóa lịch sử.");
+                      alert("API không phản hồi, không thể xóa lịch sử.");
+                    } else {
+                      console.error(e);
+                      alert("Không thể xóa lịch sử.");
+                    }
                   }
-                }
-              }}
-            >
-              🗑️
-            </button>
-            <button
-              title="Làm mới"
-              onClick={() => fetchHistory({ force: true })}
-            >
-              ⟳
-            </button>
-            <button onClick={() => setHistoryOpen((v) => !v)}>
-              {historyOpen ? "✕" : "☰"}
-            </button>
+                }}
+              >
+                🗑️
+              </button>
+              <button
+                title="Làm mới"
+                onClick={() => fetchHistory({ force: true })}
+              >
+                ⟳
+              </button>
+              <button onClick={() => setHistoryOpen((v) => !v)}>
+                {historyOpen ? "✕" : "☰"}
+              </button>
+            </div>
           </div>
         </div>
         <div className="ocr-history-list">
           {ocrHistory.length === 0 && (
             <div className="empty">Chưa có lịch sử</div>
           )}
-          {ocrHistory.map((item) => (
-            <div key={item.id} className="ocr-history-item">
-              <div className="left">
-                <div className="name">{item.originalName}</div>
-                <div className="meta">
-                  {new Date(item.ts).toLocaleString()} •{" "}
-                  {item.targetLang || item.targetLang}
+          {ocrHistory
+            .filter((item) =>
+              item.originalName
+                .toLowerCase()
+                .includes(historySearch.trim().toLowerCase())
+            )
+            .map((item) => (
+              <div key={item.id} className="ocr-history-item">
+                <div className="left">
+                  <div className="name">{item.originalName}</div>
+                  <div className="meta">
+                    {new Date(item.ts).toLocaleString()} • {item.targetLang}
+                  </div>
+                </div>
+                <div className="actions">
+                  <a
+                    href={`/api/ocr-history/${item.id}/download`}
+                    className="small-btn"
+                  >
+                    Tải
+                  </a>
+                  <button
+                    className="small-btn"
+                    onClick={() => openHistoryPreview(item.id)}
+                  >
+                    Xem
+                  </button>
                 </div>
               </div>
-              <div className="actions">
-                <a
-                  href={`/api/ocr-history/${item.id}/download`}
-                  className="small-btn"
-                >
-                  Tải
-                </a>
-                <button
-                  className="small-btn"
-                  onClick={() => {
-                    window.open(
-                      `/api/ocr-history/${item.id}/download`,
-                      "_blank"
-                    );
-                  }}
-                >
-                  Xem
-                </button>
-              </div>
-            </div>
-          ))}
+            ))}
         </div>
       </div>
+      {/* Show a small floating button to reopen history when it's closed */}
+      {!historyOpen && (
+        <button
+          className="ocr-history-toggle"
+          title="Mở Lịch sử OCR"
+          onClick={() => setHistoryOpen(true)}
+        >
+          📜
+        </button>
+      )}
     </div>
   );
 }
-
 export default App;

@@ -50,15 +50,19 @@ export default function FileDropzone({
 
       {selectedFiles.length > 0 && (
         <div className="file-list">
-          <h4>Tệp đã chọn:</h4>
-          {selectedFiles.map((file, index) => (
-            <div key={index} className="file-item">
-              <span>{file.name}</span>
-              <button type="button" onClick={() => onFileRemove(file.name)}>
-                &times;
-              </button>
-            </div>
-          ))}
+          <h4>
+            Tệp đã chọn: <small>({selectedFiles.length})</small>
+          </h4>
+          <div className="file-list-scroll">
+            {selectedFiles.map((file, index) => (
+              <div key={index} className="file-item compact">
+                <span className="file-name">{file.name}</span>
+                <button type="button" onClick={() => onFileRemove(file.name)}>
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </>
