@@ -17,6 +17,11 @@ import { DocxFilter } from "./filters/docxFilter.js";
 import { TxtFilter } from "./filters/txtFilter.js";
 
 // ===============================
+// Import midleware: rate limiter
+// ===============================
+import { limiter as rateLimiter } from "./middleware/rateLimiter.js";
+
+// ===============================
 // Import utils: cache stats, OCR worker, Redis, Queue
 // ===============================
 import { getCacheStats, resetStats } from "./utils/cacheStats.js";
@@ -25,6 +30,7 @@ import { initWorker, terminateWorker } from "./utils/ocr.js";
 import { redisClient } from "./utils/redisClient.js";
 import { jobQueue } from "./utils/queue.js";
 import { getJobState } from "./utils/jobState.js";
+
 // ===============================
 // Cấu hình đường dẫn
 // ===============================
@@ -72,7 +78,7 @@ app.post("/api/cache-reset", (req, res) => {
 // API: Xử lý 1 file (đồng bộ - chạy trực tiếp pipeline)
 // Dùng cho demo hoặc file nhỏ vì request sẽ bị chặn cho tới khi OCR hoàn tất.
 // =====================================================
-app.post("/api/convert-sync", upload.single("image"), async (req, res) => {
+app.post("/api/convert-sync", rateLimiter, upload.single("image"), async (req, res) => {
   try {
     if (!req.file)
       return res.status(400).json({ error: "Thiếu file ảnh để xử lý." });
@@ -131,7 +137,7 @@ app.post("/api/convert-sync", upload.single("image"), async (req, res) => {
 // =====================================================
 // API: Xử lý 1 file qua hàng đợi Message Queue (không blocking)
 // =====================================================
-app.post("/api/convert-async", upload.single("image"), async (req, res) => {
+app.post("/api/convert-async", rateLimiter, upload.single("image"), async (req, res) => {
   try {
     if (!req.file)
       return res.status(400).json({ error: "Thiếu file ảnh để xử lý." });
@@ -221,7 +227,7 @@ async function asyncPool(limit, array, iteratorFn) {
   return Promise.allSettled(ret);
 }
 
-app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
+app.post("/api/convert-multi", rateLimiter, upload.array("images", 10), async (req, res) => {
   try {
     const { targetLang = "vi", outputFormat = "pdf" } = req.body;
     if (!req.files?.length)
