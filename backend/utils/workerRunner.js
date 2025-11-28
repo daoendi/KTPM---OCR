@@ -70,14 +70,18 @@ export async function startWorker(options = {}) {
 
         await job.updateProgress(80);
 
-        const historyId = await recordHistory({
-          originalName: title || job.data.title || "Document",
-          filename: result.filename,
-          mime: result.mime,
-          outputBase64: result.output.toString("base64"),
-          targetLang,
-          outputFormat: fmt,
-        });
+        const owner = job.data?.owner || null;
+        const historyId = await recordHistory(
+          {
+            originalName: title || job.data.title || "Document",
+            filename: result.filename,
+            mime: result.mime,
+            outputBase64: result.output.toString("base64"),
+            targetLang,
+            outputFormat: fmt,
+          },
+          owner
+        );
 
         await job.updateProgress(90);
 

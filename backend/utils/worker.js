@@ -79,15 +79,19 @@ const worker = new Worker(
 
       await job.updateProgress(80);
 
-      // Lưu lịch sử
-      const historyId = await recordHistory({
-        originalName: job.data.title || "Document",
-        filename: result.filename,
-        mime: result.mime,
-        outputBase64: result.output.toString("base64"),
-        targetLang,
-        outputFormat: fmt,
-      });
+      // Lưu lịch sử (gắn owner nếu job cung cấp)
+      const owner = job.data?.owner || null;
+      const historyId = await recordHistory(
+        {
+          originalName: job.data.title || "Document",
+          filename: result.filename,
+          mime: result.mime,
+          outputBase64: result.output.toString("base64"),
+          targetLang,
+          outputFormat: fmt,
+        },
+        owner
+      );
 
       await job.updateProgress(90);
 

@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { redisClient } from "./redisClient.js";
 
-const LIST_KEY = "ocr:history:list";
+const LIST_KEY_PREFIX = "ocr:history:list:"; // per-user list key suffix with owner id
 const ITEM_PREFIX = "ocr:history:item:";
 const MAX_HISTORY = 200;
 
@@ -10,11 +10,14 @@ const MAX_HISTORY = 200;
  * @param {{ originalName: string, filename: string, mime: string, outputBase64?: string, targetLang?: string, outputFormat?: string }} meta
  * @returns {string} id
  */
-export async function recordHistory(meta = {}) {
+export async function recordHistory(meta = {}, owner = null) {
+  // Only record history for authenticated users (owner id must be provided)
+  if (!owner) return null;
   const id = crypto.randomBytes(8).toString("hex");
   const ts = Date.now();
-  const item = { id, ts, ...meta };
+  const item = { id, ts, owner, ...meta };
 
+  const LIST_KEY = LIST_KEY_PREFIX + owner;
   try {
     await redisClient.set(ITEM_PREFIX + id, JSON.stringify(item));
     await redisClient.lPush(LIST_KEY, id);
@@ -30,7 +33,9 @@ export async function recordHistory(meta = {}) {
  * @param {number} limit
  * @param {boolean} omitOutput - Bỏ qua trường outputBase64 nặng
  */
-export async function getHistory(limit = 50, omitOutput = false) {
+export async function getHistory(limit = 50, omitOutput = false, owner = null) {
+  if (!owner) return [];
+  const LIST_KEY = LIST_KEY_PREFIX + owner;
   try {
     const ids = await redisClient.lRange(LIST_KEY, 0, limit - 1);
     if (!ids || ids.length === 0) return [];
@@ -40,7 +45,6 @@ export async function getHistory(limit = 50, omitOutput = false) {
       try {
         const item = JSON.parse(v);
         if (omitOutput) {
-          // Giữ lại outputBase64 nếu cần cho chức năng xem trực tiếp
           const { outputBase64, ...rest } = item;
           return rest;
         }
@@ -56,18 +60,24 @@ export async function getHistory(limit = 50, omitOutput = false) {
   }
 }
 
-export async function getHistoryItem(id) {
+export async function getHistoryItem(id, owner = null) {
   try {
     const v = await redisClient.get(ITEM_PREFIX + id);
     if (!v) return null;
-    return JSON.parse(v);
+    const item = JSON.parse(v);
+    if (owner && item.owner && String(item.owner) !== String(owner)) {
+      return null;
+    }
+    return item;
   } catch (err) {
     console.error("Failed to get history item:", err);
     return null;
   }
 }
 
-export async function clearHistory() {
+export async function clearHistory(owner = null) {
+  if (!owner) return false;
+  const LIST_KEY = LIST_KEY_PREFIX + owner;
   try {
     const ids = await redisClient.lRange(LIST_KEY, 0, -1);
     if (ids && ids.length > 0) {

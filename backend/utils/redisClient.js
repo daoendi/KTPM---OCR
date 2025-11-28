@@ -1,10 +1,11 @@
 // utils/redisClient.js
 import { createClient } from "redis";
 
+// Use REDIS_URL from environment if provided, otherwise default to localhost.
+const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 // Tạo một instance của Redis client.
-// Cấu hình URL để kết nối đến server Redis đang chạy trên localhost, cổng 6379.
 const redisClient = createClient({
-  url: "redis://127.0.0.1:6379",
+  url: REDIS_URL,
 });
 
 // Lắng nghe sự kiện 'connect' để thông báo khi kết nối thành công.

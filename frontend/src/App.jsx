@@ -1,7 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useAuth } from "./AuthProvider";
+import { useNavigate, Routes, Route, NavLink } from "react-router-dom";
 import "./App.css";
 import FileDropzone from "./components/FileDropzone";
 import CacheStatsPanel from "./components/CacheStatsPanel";
+import OCRHistoryPage from "./pages/OCRHistoryPage";
 const ACTIVE_JOB_STATES = new Set([
   "waiting",
   "active",
@@ -26,6 +29,50 @@ const isNetworkError = (error) => {
 };
 
 function App() {
+  const [navOpen, setNavOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+
+  // load saved theme from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("ocr_theme_v1");
+      if (raw) {
+        const { primary, accent } = JSON.parse(raw);
+        if (primary) {
+          document.documentElement.style.setProperty(
+            "--color-primary",
+            primary
+          );
+        }
+        if (accent) {
+          document.documentElement.style.setProperty("--accent", accent);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  const applyTheme = (primary, accent) => {
+    if (primary)
+      document.documentElement.style.setProperty("--color-primary", primary);
+    if (accent) document.documentElement.style.setProperty("--accent", accent);
+    try {
+      localStorage.setItem("ocr_theme_v1", JSON.stringify({ primary, accent }));
+    } catch (e) {}
+  };
+
+  // close panels on Escape
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setNavOpen(false);
+        setThemeOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [successfulResults, setSuccessfulResults] = useState([]);
   const [failedResults, setFailedResults] = useState([]);
@@ -42,9 +89,20 @@ function App() {
   const targetLangRef = useRef(null);
   const outputFormatRef = useRef(null);
   const jobsRef = useRef([]);
-  const [historyOpen, setHistoryOpen] = useState(true);
-  const [ocrHistory, setOcrHistory] = useState([]);
-  const [historySearch, setHistorySearch] = useState("");
+  // history moved to separate page
+  const { user, logout, isReady } = useAuth();
+  const navigate = useNavigate();
+  const { pathname } = window.location;
+
+  // Redirect to login after initial auth check completes
+  useEffect(() => {
+    if (!isReady) return;
+    if (!user) {
+      if (!pathname.startsWith("/login") && !pathname.startsWith("/register")) {
+        navigate("/login");
+      }
+    }
+  }, [isReady, user, navigate, pathname]);
   // Lists are scrollable; no expand/collapse needed
 
   const markApiOffline = useCallback((message = "") => {
@@ -66,7 +124,9 @@ function App() {
       const { force = false } = options;
       if (!apiOnline && !force) return;
       try {
-        const res = await fetch("/api/ocr-history?limit=20");
+        const res = await fetch("/api/ocr-history?limit=20", {
+          credentials: "include",
+        });
         if (!res.ok) return;
         const data = await res.json();
         setOcrHistory(data);
@@ -87,7 +147,7 @@ function App() {
       const { force = false } = options;
       if (!apiOnline && !force) return;
       try {
-        const res = await fetch("/api/cache-stats");
+        const res = await fetch("/api/cache-stats", { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json();
         setCacheStats(data);
@@ -102,14 +162,6 @@ function App() {
     },
     [apiOnline, markApiOffline, markApiOnline]
   );
-
-  // Tự động cập nhật lịch sử mỗi 5 giây
-  useEffect(() => {
-    if (!apiOnline) return;
-    fetchHistory({ force: true });
-    const interval = setInterval(fetchHistory, 5000);
-    return () => clearInterval(interval);
-  }, [apiOnline, fetchHistory]);
 
   useEffect(() => {
     if (!apiOnline) return;
@@ -138,7 +190,9 @@ function App() {
       if (!job) return;
       if (!force && !apiOnline) return;
       try {
-        const res = await fetch(`/api/job/${job.jobId}`);
+        const res = await fetch(`/api/job/${job.jobId}`, {
+          credentials: "include",
+        });
         if (!res.ok) return;
         const data = await res.json();
         let shouldRefreshHistory = false;
@@ -276,7 +330,17 @@ function App() {
       job: j,
       isAsync: true,
     }));
-    return [...sync, ...asyncs];
+    // Deduplicate: if a sync result already exists for the same originalName+filename,
+    // don't include the async job result to avoid showing the same item twice.
+    const syncKeys = new Set(
+      sync.map((s) => `${s.originalName}::${s.downloadName || ""}`)
+    );
+    const filteredAsyncs = asyncs.filter((a) => {
+      const filename = a.job?.result?.filename || "";
+      const key = `${a.originalName}::${filename}`;
+      return !syncKeys.has(key);
+    });
+    return [...sync, ...filteredAsyncs];
   })();
 
   const combinedFailedItems = (() => {
@@ -307,7 +371,10 @@ function App() {
 
   const cancelJob = async (jobId) => {
     try {
-      const res = await fetch(`/api/job/${jobId}`, { method: "DELETE" });
+      const res = await fetch(`/api/job/${jobId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
       if (!res.ok) {
         throw new Error("Không thể hủy job");
       }
@@ -331,7 +398,10 @@ function App() {
 
   const retryJob = async (jobId) => {
     try {
-      const res = await fetch(`/api/job/${jobId}/retry`, { method: "POST" });
+      const res = await fetch(`/api/job/${jobId}/retry`, {
+        method: "POST",
+        credentials: "include",
+      });
       if (!res.ok) {
         throw new Error("Không thể retry job");
       }
@@ -374,7 +444,9 @@ function App() {
 
   const openHistoryPreview = async (id) => {
     try {
-      const res = await fetch(`/api/ocr-history/${id}/download`);
+      const res = await fetch(`/api/ocr-history/${id}/download`, {
+        credentials: "include",
+      });
       if (!res.ok) {
         throw new Error("Không thể mở file");
       }
@@ -482,7 +554,9 @@ function App() {
     }
 
     if (newJobs.length) {
-      setJobs((prev) => [...newJobs, ...prev]);
+      // Replace existing jobs list with the newly created jobs so the dashboard
+      // reflects only the current submission (history is handled separately).
+      setJobs(newJobs);
       setStatus(
         `Đã thêm ${newJobs.length} job async. Dashboard sẽ tự cập nhật.`
       );
@@ -505,319 +579,432 @@ function App() {
   return (
     <div className="app-container">
       <header className="app-header">
+        <button
+          className="nav-toggle"
+          aria-label="Toggle navigation"
+          onClick={() => setNavOpen((s) => !s)}
+        >
+          ☰
+        </button>
         <h1>Trình chuyển đổi OCR & Dịch thuật</h1>
         <p>Chuyển đổi và dịch nhiều tệp một cách hiệu quả</p>
-      </header>
-
-      <form onSubmit={handleSubmit}>
-        <FileDropzone
-          selectedFiles={selectedFiles}
-          onFileChange={handleFileChange}
-          onFileRemove={handleFileRemove}
-          fileInputRef={fileInputRef}
-        />
-
-        <div className="settings-grid">
-          <div className="select-box">
-            <label htmlFor="target-lang">Ngôn ngữ đích</label>
-            <select id="target-lang" ref={targetLangRef}>
-              <option value="vi">Tiếng Việt</option>
-              <option value="en">Tiếng Anh</option>
-              <option value="fr">Tiếng Pháp</option>
-              <option value="zh">Tiếng Trung</option>
-            </select>
-          </div>
-          <div className="select-box">
-            <label htmlFor="output-format">Định dạng đầu ra</label>
-            <select id="output-format" ref={outputFormatRef}>
-              <option value="pdf">PDF (.pdf)</option>
-              <option value="docx">Word (.docx)</option>
-              <option value="txt">Text (.txt)</option>
-            </select>
-          </div>
-        </div>
-
-        <p className="mode-hint">
-          Async mode only — tất cả tệp sẽ tạo job async.
-        </p>
-
-        <button type="submit" className="submit-btn">
-          {`Đẩy job async (${selectedFiles.length || 0} tệp)`}
-        </button>
-      </form>
-
-      {status && (
-        <div
-          className={`status-message ${
-            successfulResults.length > 0 ? "success" : "error"
-          }`}
-        >
-          {status}
-        </div>
-      )}
-
-      {!apiOnline && (
-        <div className="status-message warning">
-          <div>
-            {apiError ||
-              "Không thể kết nối API backend (http://localhost:3000)."}
-          </div>
+        <div style={{ position: "absolute", right: 28, top: 22 }}>
           <button
-            type="button"
-            className="ghost-btn"
-            onClick={attemptReconnect}
+            className="theme-toggle btn-ghost"
+            onClick={() => setThemeOpen((s) => !s)}
+            style={{ marginRight: 8 }}
           >
-            Thử kết nối lại
+            🎨
           </button>
-        </div>
-      )}
-
-      {(successfulResults.length > 0 ||
-        failedResults.length > 0 ||
-        cacheStats ||
-        processingList.length > 0) && (
-        <div className="results-tabs">
-          <nav className="tabs-nav">
-            <button
-              className={`tab-btn ${
-                activeTab === "processing" ? "active" : ""
-              }`}
-              onClick={() => setActiveTab("processing")}
+          {themeOpen && (
+            <div
+              className="theme-panel card"
+              role="dialog"
+              aria-modal="false"
+              aria-label="Theme settings"
+              style={{ position: "absolute", right: 0, top: 40, zIndex: 4000 }}
             >
-              Đang xử lý ({processingCount})
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "success" ? "active" : ""}`}
-              onClick={() => setActiveTab("success")}
-            >
-              Thành công ({successfulResults.length})
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "failed" ? "active" : ""}`}
-              onClick={() => setActiveTab("failed")}
-            >
-              Thất bại ({failedResults.length})
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "stats" ? "active" : ""}`}
-              onClick={() => setActiveTab("stats")}
-            >
-              Statistics
-            </button>
-          </nav>
-          <div className="tab-content">
-            {activeTab === "processing" && (
-              <ul className="result-list scroll-list">
-                {combinedProcessingItems.map((p) => {
-                  const job = p.jobId
-                    ? jobs.find((j) => j.jobId === p.jobId)
-                    : null;
-                  const progress = job
-                    ? Math.min(100, Math.max(0, job.progress || 0))
-                    : 0;
-                  return (
-                    <li key={p.key} className="result-item processing-item">
-                      <div className="processing-left">
-                        <span className="file-name">{p.originalName}</span>
-                        <div className="processing-meta">
-                          {p.jobId ? `Job #${p.jobId}` : "Queued"}
-                        </div>
-                      </div>
-                      <div className="processing-right">
-                        <div className="progress-track small">
-                          <span style={{ width: `${progress}%` }} />
-                        </div>
-                        <div className="progress-percent">{progress}%</div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {activeTab === "success" && (
-              <ul className="result-list scroll-list">
-                {combinedSuccessItems.map((it) => {
-                  if (!it.isAsync) {
-                    return (
-                      <li key={it.key} className="result-item">
-                        <span className="file-name">{it.originalName}</span>
-                        <a
-                          href={it.downloadUrl}
-                          download={it.downloadName}
-                          className="download-btn"
-                        >
-                          Tải về
-                        </a>
-                      </li>
-                    );
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <strong style={{ fontSize: 13 }}>Theme</strong>
+                <button
+                  className="ghost-btn"
+                  onClick={() => setThemeOpen(false)}
+                  aria-label="Close theme panel"
+                >
+                  ✕
+                </button>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  marginTop: 10,
+                }}
+              >
+                <label style={{ fontSize: 12 }}>Primary</label>
+                <input
+                  type="color"
+                  defaultValue={
+                    getComputedStyle(document.documentElement)
+                      .getPropertyValue("--color-primary")
+                      .trim() || "#3b82f6"
                   }
-                  return (
-                    <li key={it.key} className="result-item">
-                      <span className="file-name">{it.originalName}</span>
-                      <button
-                        type="button"
-                        className="download-btn"
-                        onClick={() => downloadJobResult(it.job)}
-                      >
-                        Tải về
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {activeTab === "failed" && (
-              <ul className="result-list scroll-list">
-                {combinedFailedItems.map((it) => {
-                  if (!it.isAsync) {
-                    return (
-                      <li key={it.key} className="result-item error-item">
-                        <span className="file-name">{it.originalName}</span>
-                        <span className="error-msg">{it.error}</span>
-                      </li>
-                    );
+                  onChange={(e) => applyTheme(e.target.value, null)}
+                />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  marginTop: 8,
+                }}
+              >
+                <label style={{ fontSize: 12 }}>Accent</label>
+                <input
+                  type="color"
+                  defaultValue={
+                    getComputedStyle(document.documentElement)
+                      .getPropertyValue("--accent")
+                      .trim() || "#06b6d4"
                   }
-                  return (
-                    <li key={it.key} className="result-item error-item">
-                      <span className="file-name">{it.originalName}</span>
-                      <span className="error-msg">
-                        {it.job.result?.error || "Thất bại"}
-                      </span>
-                      <div className="job-actions">
-                        <button
-                          type="button"
-                          className="retry-btn"
-                          onClick={() => retryJob(it.job.jobId)}
-                          disabled={!apiOnline}
-                        >
-                          Retry
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost-btn"
-                          onClick={() => cancelJob(it.job.jobId)}
-                          disabled={!apiOnline}
-                        >
-                          Xóa
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {activeTab === "stats" && (
-              <CacheStatsPanel
-                stats={cacheStats}
-                onRefresh={() => fetchCacheStats({ force: true })}
-              />
-            )}
-          </div>
+                  onChange={(e) => applyTheme(null, e.target.value)}
+                />
+              </div>
+              <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                <button
+                  className="btn-ghost"
+                  onClick={() => {
+                    applyTheme("#3b82f6", "#06b6d4");
+                  }}
+                >
+                  Default
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => {
+                    applyTheme("#ef4444", "#f59e0b");
+                  }}
+                >
+                  Warm
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => {
+                    applyTheme("#10b981", "#06b6d4");
+                  }}
+                >
+                  Green
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => {
+                    applyTheme("#6366f1", "#06b6d4");
+                  }}
+                >
+                  Violet
+                </button>
+              </div>
+            </div>
+          )}
+          {user ? (
+            <>
+              <span style={{ marginRight: 8 }}>
+                {user.displayName || user.username}
+              </span>
+              <button
+                className="ghost-btn"
+                onClick={() => {
+                  logout();
+                  navigate("/login");
+                }}
+              >
+                Logout
+              </button>
+            </>
+          ) : null}
         </div>
-      )}
+      </header>
 
       {/* Async jobs are now merged into the unified tabs above. */}
 
-      {/* Floating OCR history widget */}
-      <div className={`ocr-history-widget ${historyOpen ? "open" : ""}`}>
-        <div className="ocr-history-header">
-          <strong>Lịch sử</strong>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-              className="ocr-history-search"
-              placeholder="Tìm theo tên..."
-              value={historySearch}
-              onChange={(e) => setHistorySearch(e.target.value)}
+      {/* Layout: left sidebar + main content area */}
+      <div className="layout">
+        <aside className={`side-nav ${navOpen ? "open" : ""}`}>
+          <nav>
+            <ul>
+              <li>
+                <NavLink
+                  to="/"
+                  end
+                  className={({ isActive }) => (isActive ? "active" : "")}
+                  onClick={() => setNavOpen(false)}
+                >
+                  Home
+                </NavLink>
+              </li>
+              <li>
+                <NavLink
+                  to="/history"
+                  className={({ isActive }) => (isActive ? "active" : "")}
+                  onClick={() => setNavOpen(false)}
+                >
+                  Lịch sử OCR
+                </NavLink>
+              </li>
+              <li>
+                <button
+                  className="ghost-btn"
+                  onClick={() => {
+                    logout();
+                    navigate("/login");
+                    setNavOpen(false);
+                  }}
+                >
+                  Logout
+                </button>
+              </li>
+            </ul>
+          </nav>
+        </aside>
+
+        <main className="main-content">
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <>
+                  {/* converter + dashboard (Home) */}
+                  <form onSubmit={handleSubmit}>
+                    <FileDropzone
+                      selectedFiles={selectedFiles}
+                      onFileChange={handleFileChange}
+                      onFileRemove={handleFileRemove}
+                      fileInputRef={fileInputRef}
+                    />
+
+                    <div className="settings-grid">
+                      <div className="select-box">
+                        <label htmlFor="target-lang">Ngôn ngữ đích</label>
+                        <select id="target-lang" ref={targetLangRef}>
+                          <option value="vi">Tiếng Việt</option>
+                          <option value="en">Tiếng Anh</option>
+                          <option value="fr">Tiếng Pháp</option>
+                          <option value="zh">Tiếng Trung</option>
+                        </select>
+                      </div>
+                      <div className="select-box">
+                        <label htmlFor="output-format">Định dạng đầu ra</label>
+                        <select id="output-format" ref={outputFormatRef}>
+                          <option value="pdf">PDF (.pdf)</option>
+                          <option value="docx">Word (.docx)</option>
+                          <option value="txt">Text (.txt)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <p className="mode-hint">
+                      Async mode only — tất cả tệp sẽ tạo job async.
+                    </p>
+
+                    <button type="submit" className="submit-btn">
+                      {`Đẩy job async (${selectedFiles.length || 0} tệp)`}
+                    </button>
+                  </form>
+
+                  {status && (
+                    <div
+                      className={`status-message ${
+                        successfulResults.length > 0 ? "success" : "error"
+                      }`}
+                    >
+                      {status}
+                    </div>
+                  )}
+
+                  {!apiOnline && (
+                    <div className="status-message warning">
+                      <div>
+                        {apiError ||
+                          "Không thể kết nối API backend (http://localhost:3000)."}
+                      </div>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={attemptReconnect}
+                      >
+                        Thử kết nối lại
+                      </button>
+                    </div>
+                  )}
+
+                  {/* existing dashboard content */}
+                  {(successfulResults.length > 0 ||
+                    failedResults.length > 0 ||
+                    cacheStats ||
+                    processingList.length > 0) && (
+                    <div className="results-tabs">
+                      <nav className="tabs-nav">
+                        <button
+                          className={`tab-btn ${
+                            activeTab === "processing" ? "active" : ""
+                          }`}
+                          onClick={() => setActiveTab("processing")}
+                        >
+                          Đang xử lý ({processingCount})
+                        </button>
+                        <button
+                          className={`tab-btn ${
+                            activeTab === "success" ? "active" : ""
+                          }`}
+                          onClick={() => setActiveTab("success")}
+                        >
+                          Thành công ({successfulResults.length})
+                        </button>
+                        <button
+                          className={`tab-btn ${
+                            activeTab === "failed" ? "active" : ""
+                          }`}
+                          onClick={() => setActiveTab("failed")}
+                        >
+                          Thất bại ({failedResults.length})
+                        </button>
+                        <button
+                          className={`tab-btn ${
+                            activeTab === "stats" ? "active" : ""
+                          }`}
+                          onClick={() => setActiveTab("stats")}
+                        >
+                          Statistics
+                        </button>
+                      </nav>
+                      <div className="tab-content">
+                        {activeTab === "processing" && (
+                          <ul className="result-list scroll-list">
+                            {combinedProcessingItems.map((p) => {
+                              const job = p.jobId
+                                ? jobs.find((j) => j.jobId === p.jobId)
+                                : null;
+                              const progress = job
+                                ? Math.min(100, Math.max(0, job.progress || 0))
+                                : 0;
+                              return (
+                                <li
+                                  key={p.key}
+                                  className="result-item processing-item"
+                                >
+                                  <div className="processing-left">
+                                    <span className="file-name">
+                                      {p.originalName}
+                                    </span>
+                                    <div className="processing-meta">
+                                      {p.jobId ? `Job #${p.jobId}` : "Queued"}
+                                    </div>
+                                  </div>
+                                  <div className="processing-right">
+                                    <div className="progress-track small">
+                                      <span style={{ width: `${progress}%` }} />
+                                    </div>
+                                    <div className="progress-percent">
+                                      {progress}%
+                                    </div>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                        {activeTab === "success" && (
+                          <ul className="result-list scroll-list">
+                            {combinedSuccessItems.map((it) => {
+                              if (!it.isAsync) {
+                                return (
+                                  <li key={it.key} className="result-item">
+                                    <span className="file-name">
+                                      {it.originalName}
+                                    </span>
+                                    <a
+                                      href={it.downloadUrl}
+                                      download={it.downloadName}
+                                      className="download-btn"
+                                    >
+                                      Tải về
+                                    </a>
+                                  </li>
+                                );
+                              }
+                              return (
+                                <li key={it.key} className="result-item">
+                                  <span className="file-name">
+                                    {it.originalName}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="download-btn"
+                                    onClick={() => downloadJobResult(it.job)}
+                                  >
+                                    Tải về
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                        {activeTab === "failed" && (
+                          <ul className="result-list scroll-list">
+                            {combinedFailedItems.map((it) => {
+                              if (!it.isAsync) {
+                                return (
+                                  <li
+                                    key={it.key}
+                                    className="result-item error-item"
+                                  >
+                                    <span className="file-name">
+                                      {it.originalName}
+                                    </span>
+                                    <span className="error-msg">
+                                      {it.error}
+                                    </span>
+                                  </li>
+                                );
+                              }
+                              return (
+                                <li
+                                  key={it.key}
+                                  className="result-item error-item"
+                                >
+                                  <span className="file-name">
+                                    {it.originalName}
+                                  </span>
+                                  <span className="error-msg">
+                                    {it.job.result?.error || "Thất bại"}
+                                  </span>
+                                  <div className="job-actions">
+                                    <button
+                                      type="button"
+                                      className="retry-btn"
+                                      onClick={() => retryJob(it.job.jobId)}
+                                      disabled={!apiOnline}
+                                    >
+                                      Retry
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost-btn"
+                                      onClick={() => cancelJob(it.job.jobId)}
+                                      disabled={!apiOnline}
+                                    >
+                                      Xóa
+                                    </button>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                        {activeTab === "stats" && (
+                          <CacheStatsPanel
+                            stats={cacheStats}
+                            onRefresh={() => fetchCacheStats({ force: true })}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              }
             />
-            <div className="ocr-history-controls">
-              <button
-                title="Xóa lịch sử"
-                className="clear-btn"
-                onClick={async () => {
-                  if (
-                    !confirm(
-                      "Bạn có chắc chắn muốn xóa toàn bộ lịch sử OCR không?"
-                    )
-                  )
-                    return;
-                  try {
-                    const res = await fetch("/api/ocr-history/clear", {
-                      method: "POST",
-                    });
-                    if (!res.ok) throw new Error("Clear history failed");
-                    setOcrHistory([]); // Xóa ngay lập tức ở UI
-                    markApiOnline();
-                  } catch (e) {
-                    if (isNetworkError(e)) {
-                      markApiOffline("Không thể kết nối API khi xóa lịch sử.");
-                      alert("API không phản hồi, không thể xóa lịch sử.");
-                    } else {
-                      console.error(e);
-                      alert("Không thể xóa lịch sử.");
-                    }
-                  }
-                }}
-              >
-                🗑️
-              </button>
-              <button
-                title="Làm mới"
-                onClick={() => fetchHistory({ force: true })}
-              >
-                ⟳
-              </button>
-              <button onClick={() => setHistoryOpen((v) => !v)}>
-                {historyOpen ? "✕" : "☰"}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div className="ocr-history-list">
-          {ocrHistory.length === 0 && (
-            <div className="empty">Chưa có lịch sử</div>
-          )}
-          {ocrHistory
-            .filter((item) =>
-              item.originalName
-                .toLowerCase()
-                .includes(historySearch.trim().toLowerCase())
-            )
-            .map((item) => (
-              <div key={item.id} className="ocr-history-item">
-                <div className="left">
-                  <div className="name">{item.originalName}</div>
-                  <div className="meta">
-                    {new Date(item.ts).toLocaleString()} • {item.targetLang}
-                  </div>
-                </div>
-                <div className="actions">
-                  <a
-                    href={`/api/ocr-history/${item.id}/download`}
-                    className="small-btn"
-                  >
-                    Tải
-                  </a>
-                  <button
-                    className="small-btn"
-                    onClick={() => openHistoryPreview(item.id)}
-                  >
-                    Xem
-                  </button>
-                </div>
-              </div>
-            ))}
-        </div>
+            <Route path="/history" element={<OCRHistoryPage />} />
+          </Routes>
+        </main>
       </div>
-      {/* Show a small floating button to reopen history when it's closed */}
-      {!historyOpen && (
-        <button
-          className="ocr-history-toggle"
-          title="Mở Lịch sử OCR"
-          onClick={() => setHistoryOpen(true)}
-        >
-          📜
-        </button>
-      )}
     </div>
   );
 }

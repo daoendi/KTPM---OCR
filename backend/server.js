@@ -1,5 +1,7 @@
 // server.js
 import express from "express";
+import mongoose from "mongoose";
+import cookieParser from "cookie-parser";
 import multer from "multer";
 import cors from "cors";
 import path from "path";
@@ -25,6 +27,16 @@ import { initWorker, terminateWorker } from "./utils/ocr.js";
 import { redisClient } from "./utils/redisClient.js";
 import { jobQueue } from "./utils/queue.js";
 import { getJobState } from "./utils/jobState.js";
+import authRoutes from "./routes/auth.js";
+import verifyToken from "./middleware/verifyToken.js";
+import jwt from "jsonwebtoken";
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.warn(
+    "WARNING: JWT_SECRET is not set. Authentication tokens will be insecure or may fail. Set JWT_SECRET in your environment."
+  );
+}
 // ===============================
 // Cấu hình đường dẫn
 // ===============================
@@ -35,9 +47,33 @@ const __dirname = path.dirname(__filename);
 // Cấu hình Express
 // ===============================
 const app = express();
-app.use(cors());
+// allow cross-origin requests with credentials (cookies) when developing
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
 app.use(express.json());
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "../frontend/dist")));
+
+// Connect to MongoDB for user accounts (optional)
+// Use `MONGO_URI` from environment — do NOT keep credentials hardcoded here.
+const MONGO_URI = process.env.MONGO_URI;
+if (MONGO_URI) {
+  mongoose
+    .connect(MONGO_URI, { autoIndex: true })
+    .then(() => console.log("Connected to MongoDB"))
+    .catch((e) => console.warn("MongoDB connection failed:", e.message));
+} else {
+  console.log(
+    "MONGO_URI not set; skipping MongoDB connection (user accounts disabled)."
+  );
+}
+
+// Mount auth routes
+app.use("/api/auth", authRoutes);
 
 // ===============================
 // Cấu hình Multer
@@ -104,14 +140,34 @@ app.post("/api/convert-sync", upload.single("image"), async (req, res) => {
 
     // Ghi lịch sử xử lý để hiển thị nhanh ở UI
     try {
-      await recordHistory({
-        originalName: req.file.originalname,
-        filename: result.filename,
-        mime: result.mime,
-        outputBase64: result.output.toString("base64"),
-        targetLang,
-        outputFormat: fmt,
-      });
+      // determine owner from token if present (do not require auth for processing)
+      const auth = req.headers.authorization || req.headers.Authorization || "";
+      const headerToken =
+        auth && auth.startsWith("Bearer ") ? auth.slice(7) : null;
+      const cookieToken = req.cookies && req.cookies.token;
+      const token = headerToken || cookieToken || req.query?.token;
+      let owner = null;
+      if (token) {
+        try {
+          const payload = jwt.verify(token, JWT_SECRET);
+          owner = payload.sub;
+        } catch (e) {
+          // ignore invalid token - treat as anonymous
+        }
+      }
+      if (owner) {
+        await recordHistory(
+          {
+            originalName: req.file.originalname,
+            filename: result.filename,
+            mime: result.mime,
+            outputBase64: result.output.toString("base64"),
+            targetLang,
+            outputFormat: fmt,
+          },
+          owner
+        );
+      }
     } catch (e) {
       console.error("Failed to record history:", e);
     }
@@ -142,11 +198,28 @@ app.post("/api/convert-async", upload.single("image"), async (req, res) => {
       outputFormat = "pdf",
     } = req.body;
 
+    // try to capture owner id (if user has a valid token cookie/header)
+    const auth = req.headers.authorization || req.headers.Authorization || "";
+    const headerToken =
+      auth && auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    const cookieToken = req.cookies && req.cookies.token;
+    const token = headerToken || cookieToken || req.query?.token;
+    let owner = null;
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        owner = payload.sub;
+      } catch (e) {
+        // ignore invalid token
+      }
+    }
+
     const job = await jobQueue.add("ocr-task", {
       buffer: req.file.buffer.toString("base64"),
       targetLang,
       title: docTitle,
       outputFormat,
+      owner,
     });
 
     res.json({ jobId: job.id, message: "Job đã được thêm vào hàng đợi." });
@@ -254,14 +327,34 @@ app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
         ]);
         // ghi lịch sử từng file
         try {
-          await recordHistory({
-            originalName: file.originalname,
-            filename: result.filename,
-            mime: result.mime,
-            outputBase64: result.output.toString("base64"),
-            targetLang,
-            outputFormat: fmt,
-          });
+          const auth =
+            req.headers.authorization || req.headers.Authorization || "";
+          const headerToken =
+            auth && auth.startsWith("Bearer ") ? auth.slice(7) : null;
+          const cookieToken = req.cookies && req.cookies.token;
+          const token = headerToken || cookieToken || req.query?.token;
+          let owner = null;
+          if (token) {
+            try {
+              const payload = jwt.verify(token, JWT_SECRET);
+              owner = payload.sub;
+            } catch (e) {
+              // ignore invalid token
+            }
+          }
+          if (owner) {
+            await recordHistory(
+              {
+                originalName: file.originalname,
+                filename: result.filename,
+                mime: result.mime,
+                outputBase64: result.output.toString("base64"),
+                targetLang,
+                outputFormat: fmt,
+              },
+              owner
+            );
+          }
         } catch (e) {
           console.error(
             "Failed to record history for file:",
@@ -303,12 +396,13 @@ app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
 });
 
 // API: Lấy lịch sử OCR gần đây
-app.get("/api/ocr-history", async (req, res) => {
+app.get("/api/ocr-history", verifyToken, async (req, res) => {
   try {
     const limit = Math.min(100, parseInt(req.query.limit || "50", 10));
     const { getHistory } = await import("./utils/history.js");
     // Mặc định bỏ qua base64 để tải nhanh hơn
-    const list = await getHistory(limit, true);
+    const owner = req.user?.sub;
+    const list = await getHistory(limit, true, owner);
     res.json(list);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -316,11 +410,12 @@ app.get("/api/ocr-history", async (req, res) => {
 });
 
 // API: Tải về nội dung lịch sử theo id
-app.get("/api/ocr-history/:id/download", async (req, res) => {
+app.get("/api/ocr-history/:id/download", verifyToken, async (req, res) => {
   try {
     const { getHistoryItem } = await import("./utils/history.js");
     const id = req.params.id;
-    const item = await getHistoryItem(id);
+    const owner = req.user?.sub;
+    const item = await getHistoryItem(id, owner);
     if (!item) return res.status(404).json({ error: "Not found" });
 
     const buf = Buffer.from(item.outputBase64 || "", "base64");
@@ -338,10 +433,11 @@ app.get("/api/ocr-history/:id/download", async (req, res) => {
 });
 
 // API: Xóa toàn bộ lịch sử OCR
-app.post("/api/ocr-history/clear", async (req, res) => {
+app.post("/api/ocr-history/clear", verifyToken, async (req, res) => {
   try {
     const { clearHistory } = await import("./utils/history.js");
-    await clearHistory();
+    const owner = req.user?.sub;
+    await clearHistory(owner);
     res.json({ message: "History cleared successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
