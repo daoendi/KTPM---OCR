@@ -76,6 +76,18 @@ if (MONGO_URI) {
 app.use("/api/auth", authRoutes);
 
 // ===============================
+// Cấu hình Limiter
+// ===============================
+import { globalLimiter } from "./middleware/rateLimiters/globalLimiter.js";
+import { createTaskLimiter } from "./middleware/rateLimiters/taskLimiter.js";
+
+// Áp dụng default limiter cho toàn API đường dẫn /api nếu muốn
+app.use("/api", globalLimiter);
+const uploadLimiter = createTaskLimiter("upload", 30);
+const ocrLimiter = createTaskLimiter("ocr", 20);
+const batchLimiter = createTaskLimiter("batch", 10);
+
+// ===============================
 // Cấu hình Multer
 // ===============================
 const upload = multer({
@@ -108,7 +120,7 @@ app.post("/api/cache-reset", (req, res) => {
 // API: Xử lý 1 file (đồng bộ - chạy trực tiếp pipeline)
 // Dùng cho demo hoặc file nhỏ vì request sẽ bị chặn cho tới khi OCR hoàn tất.
 // =====================================================
-app.post("/api/convert-sync", upload.single("image"), async (req, res) => {
+app.post("/api/convert-sync", uploadLimiter, ocrLimiter, upload.single("image"), async (req, res) => {
   try {
     if (!req.file)
       return res.status(400).json({ error: "Thiếu file ảnh để xử lý." });
@@ -187,7 +199,7 @@ app.post("/api/convert-sync", upload.single("image"), async (req, res) => {
 // =====================================================
 // API: Xử lý 1 file qua hàng đợi Message Queue (không blocking)
 // =====================================================
-app.post("/api/convert-async", upload.single("image"), async (req, res) => {
+app.post("/api/convert-async", uploadLimiter, ocrLimiter, upload.single("image"), async (req, res) => {
   try {
     if (!req.file)
       return res.status(400).json({ error: "Thiếu file ảnh để xử lý." });
@@ -294,7 +306,7 @@ async function asyncPool(limit, array, iteratorFn) {
   return Promise.allSettled(ret);
 }
 
-app.post("/api/convert-multi", upload.array("images", 10), async (req, res) => {
+app.post("/api/convert-multi", uploadLimiter, batchLimiter, upload.array("images", 10), async (req, res) => {
   try {
     const { targetLang = "vi", outputFormat = "pdf" } = req.body;
     if (!req.files?.length)
