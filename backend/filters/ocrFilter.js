@@ -44,16 +44,23 @@ export async function OCRFilter(ctx) {
     console.log("   -> OCR Cache hit.");
   } else {
     recordMiss("ocr");
-    const text = await ocrImageToText(preprocessedBuffer, lang, {
+    const ocrResult = await ocrImageToText(preprocessedBuffer, lang, {
       preprocessed: Boolean(ctx.preprocessedBuffer),
     });
-    ctx.text = text;
+    if (typeof ocrResult === "string") {
+      ctx.text = ocrResult;
+      ctx.ocrFromCache = false;
+      ctx.ocrCacheFallback = false;
+    } else {
+      ctx.text = ocrResult.text;
+      ctx.ocrFromCache = Boolean(ocrResult.cacheFallback);
+      ctx.ocrCacheFallback = Boolean(ocrResult.cacheFallback);
+    }
     ctx.ocrMeta = { langDetected: lang };
-    ctx.ocrFromCache = false;
     try {
       await redisClient.set(
         ocrKey,
-        JSON.stringify({ text, meta: ctx.ocrMeta }),
+        JSON.stringify({ text: ctx.text, meta: ctx.ocrMeta }),
         "EX",
         OCR_TEXT_CACHE_TTL
       );
