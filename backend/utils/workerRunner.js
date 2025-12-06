@@ -16,129 +16,127 @@ let connection = null;
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 
 export async function startWorker(options = {}) {
-  const { concurrency = 3, limiter } = options;
-  if (workerInstance) return workerInstance;
+    const { concurrency = 3, limiter } = options;
+    if (workerInstance) return workerInstance;
 
-  // duplicate redis connection for worker
-  connection = new IORedis(REDIS_URL, {
-    maxRetriesPerRequest: null,
-    connectionName: "ocr-worker",
-    lazyConnect: true,
-  });
-  await connection.connect();
+    // duplicate redis connection for worker
+    connection = new IORedis(REDIS_URL, {
+        maxRetriesPerRequest: null,
+        connectionName: "ocr-worker",
+        lazyConnect: true,
+    });
+    await connection.connect();
 
-  workerInstance = new Worker(
-    "ocr-jobs",
-    async (job) => {
-      const start = performance.now();
-      try {
-        const {
-          buffer: base64Buffer,
-          targetLang,
-          title,
-          outputFormat = "pdf",
-        } = job.data;
-        let buffer;
-        if (typeof base64Buffer === "string")
-          buffer = Buffer.from(base64Buffer, "base64");
-        else if (Buffer.isBuffer(base64Buffer)) buffer = base64Buffer;
-        else buffer = Buffer.from(base64Buffer || job.data.buffer || []);
+    workerInstance = new Worker(
+        "ocr-jobs",
+        async(job) => {
+            const start = performance.now();
+            try {
+                const {
+                    buffer: base64Buffer,
+                    targetLang,
+                    title,
+                    outputFormat = "pdf",
+                } = job.data;
+                let buffer;
+                if (typeof base64Buffer === "string")
+                    buffer = Buffer.from(base64Buffer, "base64");
+                else if (Buffer.isBuffer(base64Buffer)) buffer = base64Buffer;
+                else buffer = Buffer.from(base64Buffer || job.data.buffer || []);
 
-        await job.updateProgress(10);
+                await job.updateProgress(10);
 
-        const fmt = String(outputFormat || "pdf").toLowerCase();
-        let exportFilter = PdfFilter;
-        if (fmt === "docx") exportFilter = DocxFilter;
-        else if (fmt === "txt") exportFilter = TxtFilter;
+                const fmt = String(outputFormat || "pdf").toLowerCase();
+                let exportFilter = PdfFilter;
+                if (fmt === "docx") exportFilter = DocxFilter;
+                else if (fmt === "txt") exportFilter = TxtFilter;
 
-        const ctx = {
-          buffer,
-          lang: "eng+vie",
-          targetLang,
-          title: title || job.data.title || "Document",
-          outputFormat: fmt,
-        };
+                const ctx = {
+                    buffer,
+                    lang: "eng+vie",
+                    targetLang,
+                    title: title || job.data.title || "Document",
+                    outputFormat: fmt,
+                };
 
-        await job.updateProgress(20);
+                await job.updateProgress(20);
 
-        const result = await runPipeline(ctx, [
-          PreprocessFilter,
-          OCRFilter,
-          TranslateFilter,
-          exportFilter,
-        ]);
+                const result = await runPipeline(ctx, [
+                    PreprocessFilter,
+                    OCRFilter,
+                    TranslateFilter,
+                    exportFilter,
+                ]);
 
-        await job.updateProgress(80);
+                await job.updateProgress(80);
 
-        const owner = job.data?.owner || null;
-        const historyId = await recordHistory(
-          {
-            originalName: title || job.data.title || "Document",
-            filename: result.filename,
-            mime: result.mime,
-            outputBase64: result.output.toString("base64"),
-            targetLang,
-            outputFormat: fmt,
-          },
-          owner
-        );
+                const owner = job.data ?. owner || null;
+                const historyId = await recordHistory({
+                        originalName: title || job.data.title || "Document",
+                        filename: result.filename,
+                        mime: result.mime,
+                        outputBase64: result.output.toString("base64"),
+                        targetLang,
+                        outputFormat: fmt,
+                    },
+                    owner
+                );
 
-        await job.updateProgress(90);
+                await job.updateProgress(90);
 
-        await connection.set(
-          `job:${job.id}:result`,
-          JSON.stringify({
-            success: true,
-            filename: result.filename,
-            mime: result.mime,
-            outputBase64: result.output.toString("base64"),
-            historyId,
-            processingTime: Math.round(performance.now() - start),
-          }),
-          "EX",
-          3600
-        );
+                await connection.set(
+                    `job:${job.id}:result`,
+                    JSON.stringify({
+                        success: true,
+                        filename: result.filename,
+                        mime: result.mime,
+                        outputBase64: result.output.toString("base64"),
+                        historyId,
+                        processingTime: Math.round(performance.now() - start),
+                    }),
+                    "EX",
+                    3600
+                );
 
-        await job.updateProgress(100);
+                await job.updateProgress(100);
 
-        return { success: true, historyId };
-      } catch (err) {
-        console.error(`Job ${job.id} failed:`, err);
-        throw err;
-      }
-    },
-    {
-      connection,
-      concurrency,
-      limiter,
-    }
-  );
+                return { success: true, historyId };
+            } catch (err) {
+                console.error(`Job ${job.id} failed:`, err);
+                throw err;
+            }
+        }, {
+            connection,
+            concurrency,
+            limiter,
+        }
+    );
 
-  workerInstance.on("completed", (job) =>
-    console.log(`Job ${job.id} completed`)
-  );
-  workerInstance.on("failed", (job, err) =>
-    console.error(`Job ${job.id} failed: ${err?.message || err}`)
-  );
+    workerInstance.on("completed", (job) =>
+        console.log(`Job ${job.id} completed`)
+    );
+    workerInstance.on("failed", (job, err) =>
+        console.error(`Job ${job.id} failed: ${err ?.message || err}`)
+    );
 
-  return workerInstance;
+    return workerInstance;
 }
 
 export async function stopWorker() {
-  if (workerInstance) {
-    try {
-      await workerInstance.close();
-    } catch (e) {
-      console.error("Error closing worker:", e);
+    if (workerInstance) {
+        try {
+            await workerInstance.close();
+        } catch (e) {
+            console.error("Error closing worker:", e);
+        }
+        workerInstance = null;
     }
-    workerInstance = null;
-  }
-  if (connection) {
-    try {
-      await connection.quit();
-    } catch (e) {
-      console.error("Error quitting connection:", e);
+    if (connection) {
+        try {
+            await connection.quit();
+        } catch (e) {
+            console.error("Error quitting connection:", e);
+        }
+        connection = null;
     }
-    connection = null;
-  }
 }

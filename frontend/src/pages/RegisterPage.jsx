@@ -20,7 +20,7 @@ export default function RegisterPage() {
       await auth.register(username, password, displayName);
       nav("/");
     } catch (err) {
-      setError(err?.response?.data?.error || err.message || "Register failed");
+      setError(err ?.response ?.data ?.error || err.message || "Register failed");
     } finally {
       setLoading(false);
     }
