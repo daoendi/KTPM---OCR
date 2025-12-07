@@ -121,7 +121,7 @@ app.post("/api/cache-reset", (req, res) => {
 
 // === Cấu hình chiến thuật Throttling ===
 // Giới hạn 5 request / 1 giây cho mỗi User (hoặc IP)
-const userRateLimiter = createUserThrottler(5, 1);
+const generalThrottler = createUserThrottler(5, 60);
 
 // =====================================================
 // API: Xử lý 1 file (đồng bộ - chạy trực tiếp pipeline)
@@ -131,7 +131,7 @@ const userRateLimiter = createUserThrottler(5, 1);
 app.post(
     "/api/convert-sync",
     verifyToken,
-    userRateLimiter,
+    generalThrottler,
     usageMonitor,
     uploadLimiter,
     ocrLimiter,
@@ -219,7 +219,7 @@ app.post(
 app.post(
     "/api/convert-async",
     verifyToken,
-    userRateLimiter,
+    generalThrottler,
     usageMonitor,
     uploadLimiter,
     ocrLimiter,
@@ -335,7 +335,7 @@ async function asyncPool(limit, array, iteratorFn) {
 app.post(
     "/api/convert-multi",
     verifyToken,
-    userRateLimiter,
+    generalThrottler,
     usageMonitor,
     uploadLimiter,
     batchLimiter,
