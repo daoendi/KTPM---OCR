@@ -57,7 +57,17 @@ export async function TranslateFilter(ctx) {
     // 3b. Cache miss
     recordMiss("translate");
     try {
-      ctx.translated = await translateText(ctx.text, ctx.targetLang);
+      const res = await translateText(ctx.text, ctx.targetLang);
+      if (res && typeof res === "object" && res.cacheFallback) {
+        // translateText used a cached translation as a fallback
+        ctx.translated = res.translatedText;
+        ctx.translateCacheFallback = true;
+      } else {
+        ctx.translated = res;
+        ctx.translateCacheFallback = false;
+      }
+
+      // Store result in cache (if any)
       await redisClient.set(
         translateKey,
         JSON.stringify({ translatedText: ctx.translated }),
@@ -78,6 +88,7 @@ export async function TranslateFilter(ctx) {
           .createHash("sha256")
           .update(ctx.translated || "")
           .digest("hex");
+      ctx.translateCacheFallback = false;
     }
     ctx.translateFromCache = false;
     console.log("   -> Translate Cache miss, running translation.");

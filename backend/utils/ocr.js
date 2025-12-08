@@ -1,6 +1,25 @@
 import Tesseract from "tesseract.js";
 import sharp from "sharp";
+import crypto from "crypto";
 import { startWorker, stopWorker } from "./workerRunner.js";
+import { createBreaker } from "./circuitBreaker.js";
+import { redisClient } from "./redisClient.js";
+import { incr } from "./metrics.js";
+
+// Create a circuit breaker for Tesseract recognition
+const tesseractRecognize = async (input, lang, opts) => {
+  // tesseract.recognize returns a Promise
+  return await Tesseract.recognize(input, lang, opts);
+};
+const tesseractBreaker = createBreaker(tesseractRecognize, {
+  name: "tesseract",
+  timeout: parseInt(process.env.CB_TESS_TIMEOUT || "10000", 10),
+  errorThresholdPercentage: parseInt(
+    process.env.CB_TESS_ERROR_THRESHOLD || "50",
+    10
+  ),
+  resetTimeout: parseInt(process.env.CB_TESS_RESET_TIMEOUT || "30000", 10),
+});
 
 /**
  * Tiền xử lý ảnh bằng thư viện Sharp để cải thiện độ chính xác của OCR.
@@ -37,15 +56,49 @@ export async function ocrImageToText(buffer, lang = "eng+vie", options = {}) {
     // Gọi Tesseract để nhận dạng văn bản từ ảnh đã xử lý.
     const {
       data: { text },
-    } = await Tesseract.recognize(input, lang, {
+    } = await tesseractBreaker.fire(input, lang, {
       // Tắt logger để tránh in ra quá nhiều thông tin không cần thiết.
       logger: (m) => {},
     });
 
     // Trả về văn bản đã được trim (loại bỏ khoảng trắng thừa).
-    return text.trim();
+    return { text: text.trim(), cacheFallback: false };
   } catch (err) {
-    console.error("Lỗi OCR:", err);
+    console.error("Lỗi OCR (breaker or runtime):", err);
+    // Attempt cache fallback: compute hash of the preprocessed input and check Redis
+    try {
+      const hash = crypto
+        .createHash("sha256")
+        .update(preprocessed ? buffer : await preprocessImage(buffer))
+        .digest("hex");
+      const cacheKey = `ocr:text:${hash}:${lang}`;
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.text) {
+            console.info("OCR breaker fallback: returning cached OCR text");
+            try {
+              incr("cache_fallback_count");
+            } catch (e) {}
+            return { text: parsed.text, cacheFallback: true };
+          }
+        } catch (e) {
+          // cached might be plain text
+          console.info("OCR breaker fallback: returning cached plain text");
+          try {
+            incr("cache_fallback_count");
+          } catch (e) {}
+          return { text: String(cached), cacheFallback: true };
+        }
+      }
+    } catch (cacheErr) {
+      console.warn(
+        "OCR fallback cache check failed:",
+        cacheErr?.message || cacheErr
+      );
+    }
+
     throw new Error(
       "OCR thất bại. Vui lòng kiểm tra lại file ảnh hoặc ngôn ngữ đã chọn."
     );

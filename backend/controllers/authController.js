@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || "daoendi";
 if (!JWT_SECRET) {
   console.warn(
     "WARNING: JWT_SECRET is not set. Authentication tokens will be insecure or may fail. Set JWT_SECRET in your environment."
@@ -26,6 +26,12 @@ export const register = async (req, res) => {
     const { username, password, displayName } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: "username and password required" });
+    }
+    if (!JWT_SECRET) {
+      return res.status(500).json({
+        error:
+          "Server misconfiguration: JWT_SECRET is missing. Please set JWT_SECRET in environment/.env.",
+      });
     }
     const existing = await User.findOne({ username });
     if (existing) return res.status(409).json({ error: "User exists" });
@@ -58,6 +64,12 @@ export const login = async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password)
       return res.status(400).json({ error: "username and password required" });
+    if (!JWT_SECRET) {
+      return res.status(500).json({
+        error:
+          "Server misconfiguration: JWT_SECRET is missing. Please set JWT_SECRET in environment/.env.",
+      });
+    }
     const user = await User.findOne({ username });
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
     const ok = await bcrypt.compare(password, user.passwordHash);

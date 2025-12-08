@@ -30,37 +30,42 @@ export async function OCRFilter(ctx) {
     const ocrKey = `ocr:text:${ctx.preprocessedHash}:${lang}`;
     const cachedPayload = await redisClient.get(ocrKey);
 
-    if (cachedPayload) {
-        recordHit("ocr");
-        let payload;
-        try {
-            payload = JSON.parse(cachedPayload);
-        } catch (err) {
-            payload = { text: cachedPayload, meta: {} };
-        }
-        ctx.text = payload.text;
-        ctx.ocrMeta = payload.meta;
-        ctx.ocrFromCache = true;
-        console.log("   -> OCR Cache hit.");
+  if (cachedPayload) {
+    recordHit("ocr");
+    let payload;
+    try {
+      payload = JSON.parse(cachedPayload);
+    } catch (err) {
+      payload = { text: cachedPayload, meta: {} };
+    }
+    ctx.text = payload.text;
+    ctx.ocrMeta = payload.meta;
+    ctx.ocrFromCache = true;
+    console.log("   -> OCR Cache hit.");
+  } else {
+    recordMiss("ocr");
+    const ocrResult = await ocrImageToText(preprocessedBuffer, lang, {
+      preprocessed: Boolean(ctx.preprocessedBuffer),
+    });
+    if (typeof ocrResult === "string") {
+      ctx.text = ocrResult;
+      ctx.ocrFromCache = false;
+      ctx.ocrCacheFallback = false;
     } else {
-        recordMiss("ocr");
-        const text = await ocrImageToText(preprocessedBuffer, lang, {
-            preprocessed: Boolean(ctx.preprocessedBuffer),
-        });
-        ctx.text = text;
-        ctx.ocrMeta = { langDetected: lang };
-        ctx.ocrFromCache = false;
-        try {
-            await redisClient.set(
-                ocrKey,
-                JSON.stringify({ text, meta: ctx.ocrMeta }),
-                "EX",
-                OCR_TEXT_CACHE_TTL
-            );
-        } catch (err) {
-            console.error("Failed to cache OCR text", err);
-        }
-        console.log("   -> OCR Cache miss, running OCR.");
+      ctx.text = ocrResult.text;
+      ctx.ocrFromCache = Boolean(ocrResult.cacheFallback);
+      ctx.ocrCacheFallback = Boolean(ocrResult.cacheFallback);
+    }
+    ctx.ocrMeta = { langDetected: lang };
+    try {
+      await redisClient.set(
+        ocrKey,
+        JSON.stringify({ text: ctx.text, meta: ctx.ocrMeta }),
+        "EX",
+        OCR_TEXT_CACHE_TTL
+      );
+    } catch (err) {
+      console.error("Failed to cache OCR text", err);
     }
 
     ctx.textHash = crypto.createHash("sha256").update(ctx.text).digest("hex");
