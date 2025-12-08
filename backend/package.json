@@ -21,6 +21,7 @@
     "docx": "^9.5.1",
     "express": "^4.21.2",
     "express-rate-limit": "^7.4.0",
+    "express-slow-down": "^1.5.7",
     "rate-limit-redis": "^1.0.0",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",

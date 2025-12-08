@@ -14,21 +14,21 @@ const OCR_TEXT_CACHE_TTL = parseInt(process.env.CACHE_TEXT_TTL || "604800", 10);
  * @returns {Promise<object>} - Context đã được cập nhật với kết quả OCR.
  */
 export async function OCRFilter(ctx) {
-    if (!ctx ?.buffer) {
-        throw new Error("OCRFilter: thiếu ctx.buffer (ảnh đầu vào).");
-    }
+  if (!ctx?.buffer) {
+    throw new Error("OCRFilter: thiếu ctx.buffer (ảnh đầu vào).");
+  }
 
-    const lang = ctx.lang || "eng+vie";
-    const preprocessedBuffer = ctx.preprocessedBuffer || ctx.buffer;
-    if (!ctx.preprocessedHash) {
-        ctx.preprocessedHash = crypto
-            .createHash("sha256")
-            .update(preprocessedBuffer)
-            .digest("hex");
-    }
+  const lang = ctx.lang || "eng+vie";
+  const preprocessedBuffer = ctx.preprocessedBuffer || ctx.buffer;
+  if (!ctx.preprocessedHash) {
+    ctx.preprocessedHash = crypto
+      .createHash("sha256")
+      .update(preprocessedBuffer)
+      .digest("hex");
+  }
 
-    const ocrKey = `ocr:text:${ctx.preprocessedHash}:${lang}`;
-    const cachedPayload = await redisClient.get(ocrKey);
+  const ocrKey = `ocr:text:${ctx.preprocessedHash}:${lang}`;
+  const cachedPayload = await redisClient.get(ocrKey);
 
   if (cachedPayload) {
     recordHit("ocr");
@@ -42,6 +42,9 @@ export async function OCRFilter(ctx) {
     ctx.ocrMeta = payload.meta;
     ctx.ocrFromCache = true;
     console.log("   -> OCR Cache hit.");
+    // Ensure textHash is available downstream
+    ctx.textHash = crypto.createHash("sha256").update(ctx.text).digest("hex");
+    return ctx;
   } else {
     recordMiss("ocr");
     const ocrResult = await ocrImageToText(preprocessedBuffer, lang, {
@@ -67,8 +70,7 @@ export async function OCRFilter(ctx) {
     } catch (err) {
       console.error("Failed to cache OCR text", err);
     }
-
     ctx.textHash = crypto.createHash("sha256").update(ctx.text).digest("hex");
-
     return ctx;
+  }
 }
