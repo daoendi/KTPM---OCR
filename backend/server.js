@@ -38,14 +38,15 @@ import healthRouter from "./routes/health.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-  console.warn(
-    "WARNING: JWT_SECRET is not set. Authentication tokens will be insecure or may fail. Set JWT_SECRET in your environment."
-  );
+    console.warn(
+        "WARNING: JWT_SECRET is not set. Authentication tokens will be insecure or may fail. Set JWT_SECRET in your environment."
+    );
 }
 // ===============================
 // Cấu hình đường dẫn
 // ===============================
-const __filename = fileURLToPath(import.meta.url);
+const __filename = fileURLToPath(
+    import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ===============================
@@ -54,10 +55,10 @@ const __dirname = path.dirname(__filename);
 const app = express();
 // allow cross-origin requests with credentials (cookies) when developing
 app.use(
-  cors({
-    origin: true,
-    credentials: true,
-  })
+    cors({
+        origin: true,
+        credentials: true,
+    })
 );
 app.use(express.json());
 app.use(cookieParser());
@@ -67,14 +68,14 @@ app.use(express.static(path.join(__dirname, "../frontend/dist")));
 // Use `MONGO_URI` from environment — do NOT keep credentials hardcoded here.
 const MONGO_URI = process.env.MONGO_URI;
 if (MONGO_URI) {
-  mongoose
-    .connect(MONGO_URI, { autoIndex: true })
-    .then(() => console.log("Connected to MongoDB"))
-    .catch((e) => console.warn("MongoDB connection failed:", e.message));
+    mongoose
+        .connect(MONGO_URI, { autoIndex: true })
+        .then(() => console.log("Connected to MongoDB"))
+        .catch((e) => console.warn("MongoDB connection failed:", e.message));
 } else {
-  console.log(
-    "MONGO_URI not set; skipping MongoDB connection (user accounts disabled)."
-  );
+    console.log(
+        "MONGO_URI not set; skipping MongoDB connection (user accounts disabled)."
+    );
 }
 
 // Mount auth routes
@@ -88,6 +89,8 @@ app.use("/", healthRouter);
 // ===============================
 import { globalLimiter } from "./middleware/rateLimiters/globalLimiter.js";
 import { createTaskLimiter } from "./middleware/rateLimiters/taskLimiter.js";
+import createUserThrottler from "./middleware/rateLimiters/userThrottler.js";
+import usageMonitor from "./middleware/usageMonitor.js";
 
 // Respect reverse proxy settings so `req.ip` and `X-Forwarded-For` are handled
 // Set `TRUST_PROXY=1` in production if behind a proxy (nginx/Heroku/Cloudflare)
@@ -115,20 +118,20 @@ const batchLimiter = createTaskLimiter(
 // Cấu hình Multer
 // ===============================
 const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024, files: 10 }, // 50MB/file
-  fileFilter: (req, file, cb) => {
-    const ok = /image\/(png|jpeg|jpg|bmp|tiff|webp)/i.test(file.mimetype);
-    if (!ok) return cb(new Error("Chỉ chấp nhận ảnh PNG/JPEG/BMP/TIFF/WEBP"));
-    cb(null, true);
-  },
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024, files: 10 }, // 50MB/file
+    fileFilter: (req, file, cb) => {
+        const ok = /image\/(png|jpeg|jpg|bmp|tiff|webp)/i.test(file.mimetype);
+        if (!ok) return cb(new Error("Chỉ chấp nhận ảnh PNG/JPEG/BMP/TIFF/WEBP"));
+        cb(null, true);
+    },
 });
 
 // ===============================
 // Healthcheck
 // ===============================
 app.get("/healthz", (req, res) =>
-  res.json({ ok: true, redis: redisClient.isOpen })
+    res.json({ ok: true, redis: redisClient.isOpen })
 );
 
 // ===============================
@@ -136,8 +139,8 @@ app.get("/healthz", (req, res) =>
 // ===============================
 app.get("/api/cache-stats", (req, res) => res.json(getCacheStats()));
 app.post("/api/cache-reset", (req, res) => {
-  resetStats();
-  res.json({ message: "Cache stats reset thành công!" });
+    resetStats();
+    res.json({ message: "Cache stats reset thành công!" });
 });
 
 // API: simple metrics endpoint (returns Redis-backed counters)
@@ -318,55 +321,55 @@ app.get("/api/job/:id", async (req, res) => {
 });
 
 // API: Hủy job đang chạy
-app.delete("/api/job/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const job = await jobQueue.getJob(id);
-    if (!job) {
-      return res.status(404).json({ error: "Job not found" });
+app.delete("/api/job/:id", async(req, res) => {
+    const { id } = req.params;
+    try {
+        const job = await jobQueue.getJob(id);
+        if (!job) {
+            return res.status(404).json({ error: "Job not found" });
+        }
+        await job.remove();
+        res.json({ message: "Job cancelled" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-    await job.remove();
-    res.json({ message: "Job cancelled" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
 // API: Retry failed job
-app.post("/api/job/:id/retry", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const job = await jobQueue.getJob(id);
-    if (!job) {
-      return res.status(404).json({ error: "Job not found" });
+app.post("/api/job/:id/retry", async(req, res) => {
+    const { id } = req.params;
+    try {
+        const job = await jobQueue.getJob(id);
+        if (!job) {
+            return res.status(404).json({ error: "Job not found" });
+        }
+        await job.retry();
+        res.json({ message: "Job queued for retry" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-    await job.retry();
-    res.json({ message: "Job queued for retry" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
 // =====================================================
 // API: Batch nhiều file (song song, concurrency = 5)
 // =====================================================
 const MAX_CONCURRENCY = Math.max(
-  1,
-  parseInt(process.env.MAX_CONCURRENCY || "5", 10)
+    1,
+    parseInt(process.env.MAX_CONCURRENCY || "5", 10)
 );
 
 async function asyncPool(limit, array, iteratorFn) {
-  const ret = [];
-  const executing = new Set();
-  for (const item of array) {
-    const p = Promise.resolve().then(() => iteratorFn(item));
-    ret.push(p);
-    executing.add(p);
-    const clean = () => executing.delete(p);
-    p.then(clean, clean);
-    if (executing.size >= limit) await Promise.race(executing);
-  }
-  return Promise.allSettled(ret);
+    const ret = [];
+    const executing = new Set();
+    for (const item of array) {
+        const p = Promise.resolve().then(() => iteratorFn(item));
+        ret.push(p);
+        executing.add(p);
+        const clean = () => executing.delete(p);
+        p.then(clean, clean);
+        if (executing.size >= limit) await Promise.race(executing);
+    }
+    return Promise.allSettled(ret);
 }
 
 app.post(
@@ -477,69 +480,71 @@ app.post(
 );
 
 // API: Lấy lịch sử OCR gần đây
-app.get("/api/ocr-history", verifyToken, async (req, res) => {
-  try {
-    const limit = Math.min(100, parseInt(req.query.limit || "50", 10));
-    const { getHistory } = await import("./utils/history.js");
-    // Mặc định bỏ qua base64 để tải nhanh hơn
-    const owner = req.user?.sub;
-    const list = await getHistory(limit, true, owner);
-    res.json(list);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+app.get("/api/ocr-history", verifyToken, async(req, res) => {
+    try {
+        const limit = Math.min(100, parseInt(req.query.limit || "50", 10));
+        const { getHistory } = await
+        import ("./utils/history.js");
+        // Mặc định bỏ qua base64 để tải nhanh hơn
+        const owner = req.user ?.asub;
+        const list = await getHistory(limit, true, owner);
+        res.json(list);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // API: Tải về nội dung lịch sử theo id
-app.get("/api/ocr-history/:id/download", verifyToken, async (req, res) => {
-  try {
-    const { getHistoryItem } = await import("./utils/history.js");
-    const id = req.params.id;
-    const owner = req.user?.sub;
-    const item = await getHistoryItem(id, owner);
-    if (!item) return res.status(404).json({ error: "Not found" });
+app.get("/api/ocr-history/:id/download", verifyToken, async(req, res) => {
+    try {
+        const { getHistoryItem } = await
+        import ("./utils/history.js");
+        const id = req.params.id;
+        const owner = req.user ?.asub;
+        const item = await getHistoryItem(id, owner);
+        if (!item) return res.status(404).json({ error: "Not found" });
 
-    const buf = Buffer.from(item.outputBase64 || "", "base64");
-    res.setHeader("Content-Type", item.mime || "application/octet-stream");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${
-        item.filename || item.originalName || "download"
-      }"`
-    );
-    res.send(buf);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+        const buf = Buffer.from(item.outputBase64 || "", "base64");
+        res.setHeader("Content-Type", item.mime || "application/octet-stream");
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${item.filename || item.originalName || "download"
+            }"`
+        );
+        res.send(buf);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // API: Xóa toàn bộ lịch sử OCR
-app.post("/api/ocr-history/clear", verifyToken, async (req, res) => {
-  try {
-    const { clearHistory } = await import("./utils/history.js");
-    const owner = req.user?.sub;
-    await clearHistory(owner);
-    res.json({ message: "History cleared successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+app.post("/api/ocr-history/clear", verifyToken, async(req, res) => {
+    try {
+        const { clearHistory } = await
+        import ("./utils/history.js");
+        const owner = req.user ?.asub;
+        await clearHistory(owner);
+        res.json({ message: "History cleared successfully" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ===============================
 // Catch-all: Client-side routing
 // ===============================
 app.get("*", (req, res) =>
-  res.sendFile(path.join(__dirname, "../frontend/dist/index.html"))
+    res.sendFile(path.join(__dirname, "../frontend/dist/index.html"))
 );
 
 // ===============================
 // Middleware bắt lỗi tổng quát
 // ===============================
 app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
-  res
-    .status(500)
-    .json({ error: "Internal Server Error", details: err.message });
+    console.error("Unhandled error:", err);
+    res
+        .status(500)
+        .json({ error: "Internal Server Error", details: err.message });
 });
 
 // ===============================
@@ -547,38 +552,38 @@ app.use((err, req, res, next) => {
 // ===============================
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
-(async () => {
-  try {
-    console.log("Khởi tạo OCR worker...");
-    await initWorker();
-    await new Promise((resolve, reject) => {
-      const server = app.listen(PORT, () => {
-        console.log(`🚀 API server chạy tại http://localhost:${PORT}`);
-        console.log(`⚙️  Giới hạn đồng thời: ${MAX_CONCURRENCY}`);
-        resolve(server);
-      });
-      server.on("error", (err) => {
-        if (err.code === "EADDRINUSE") {
-          console.error(
-            `Cổng ${PORT} đang được sử dụng. Hãy tắt tiến trình khác hoặc đặt PORT khác rồi thử lại.`
-          );
-        }
-        reject(err);
-      });
-    });
+(async() => {
+    try {
+        console.log("Khởi tạo OCR worker...");
+        await initWorker();
+        await new Promise((resolve, reject) => {
+            const server = app.listen(PORT, () => {
+                console.log(`🚀 API server chạy tại http://localhost:${PORT}`);
+                console.log(`⚙️  Giới hạn đồng thời: ${MAX_CONCURRENCY}`);
+                resolve(server);
+            });
+            server.on("error", (err) => {
+                if (err.code === "EADDRINUSE") {
+                    console.error(
+                        `Cổng ${PORT} đang được sử dụng. Hãy tắt tiến trình khác hoặc đặt PORT khác rồi thử lại.`
+                    );
+                }
+                reject(err);
+            });
+        });
 
-    process.on("SIGINT", async () => {
-      console.log("\nĐang tắt server, giải phóng worker...");
-      await terminateWorker();
-      process.exit(0);
-    });
-    process.on("SIGTERM", async () => {
-      console.log("\nSIGTERM nhận được, đang tắt server...");
-      await terminateWorker();
-      process.exit(0);
-    });
-  } catch (err) {
-    console.error("Lỗi khi khởi tạo server:", err);
-    process.exit(1);
-  }
+        process.on("SIGINT", async() => {
+            console.log("\nĐang tắt server, giải phóng worker...");
+            await terminateWorker();
+            process.exit(0);
+        });
+        process.on("SIGTERM", async() => {
+            console.log("\nSIGTERM nhận được, đang tắt server...");
+            await terminateWorker();
+            process.exit(0);
+        });
+    } catch (err) {
+        console.error("Lỗi khi khởi tạo server:", err);
+        process.exit(1);
+    }
 })();
