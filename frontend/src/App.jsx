@@ -218,19 +218,19 @@ function App() {
           if (data.state === "completed") {
             // find originalName from jobsRef
             const matching = jobsRef.current.find((j) => j.jobId === job.jobId);
-            const originalName = matching?.originalName || `Job ${job.jobId}`;
+            const originalName = matching ?.originalName || `Job ${job.jobId}`;
             // add to successfulResults if not already present
             setSuccessfulResults((prev) => {
               const exists = prev.some(
                 (p) =>
                   p.originalName === originalName &&
-                  p.downloadName === (data.result?.filename || "")
+                  p.downloadName === (data.result ?.filename || "")
               );
               if (exists) return prev;
               const newItem = {
                 originalName,
-                downloadName: data.result?.filename,
-                downloadUrl: data.result?.outputBase64
+                downloadName: data.result ?.filename,
+                downloadUrl: data.result ?.outputBase64
                   ? `data:${data.result.mime};base64,${data.result.outputBase64}`
                   : null,
               };
@@ -241,12 +241,12 @@ function App() {
             );
           } else if (data.state === "failed") {
             const matching = jobsRef.current.find((j) => j.jobId === job.jobId);
-            const originalName = matching?.originalName || `Job ${job.jobId}`;
+            const originalName = matching ?.originalName || `Job ${job.jobId}`;
             setFailedResults((prev) => {
               const exists = prev.some((f) => f.originalName === originalName);
               if (exists) return prev;
               return [
-                { originalName, error: data?.error || "Failed" },
+                { originalName, error: data ?.error || "Failed" },
                 ...prev,
               ];
             });
@@ -287,7 +287,7 @@ function App() {
   // Derived async job lists for unified UI
   const asyncProcessingJobs = jobs.filter((j) => isJobInFlight(j.state));
   const asyncCompletedJobs = jobs.filter(
-    (j) => j.state === "completed" && j.result?.outputBase64
+    (j) => j.state === "completed" && j.result ?.outputBase64
   );
   const asyncFailedJobs = jobs.filter((j) => j.state === "failed");
   // combined processing count: processingList (temps + jobId entries) + any in-flight jobs not yet in processingList
@@ -336,7 +336,7 @@ function App() {
       sync.map((s) => `${s.originalName}::${s.downloadName || ""}`)
     );
     const filteredAsyncs = asyncs.filter((a) => {
-      const filename = a.job?.result?.filename || "";
+      const filename = a.job ?.result ?.filename || "";
       const key = `${a.originalName}::${filename}`;
       return !syncKeys.has(key);
     });
@@ -433,7 +433,7 @@ function App() {
   }, [fetchHistory, fetchCacheStats, refreshJobs, markApiOnline]);
 
   const downloadJobResult = (job) => {
-    if (!job?.result?.outputBase64) return;
+    if (!job ?.result ?.outputBase64) return;
     const link = document.createElement("a");
     link.href = `data:${job.result.mime};base64,${job.result.outputBase64}`;
     link.download = job.result.filename || job.originalName || "download";
@@ -964,7 +964,7 @@ function App() {
                                     {it.originalName}
                                   </span>
                                   <span className="error-msg">
-                                    {it.job.result?.error || "Thất bại"}
+                                    {it.job.result ?.error || "Thất bại"}
                                   </span>
                                   <div className="job-actions">
                                     <button

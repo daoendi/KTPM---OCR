@@ -28,7 +28,7 @@ export function AuthProvider({ children }) {
       try {
         const res = await axios.get("/api/auth/me");
         if (!mounted) return;
-        if (res.data?.user) {
+        if (res.data ?.user) {
           setUser(res.data.user);
           try {
             localStorage.setItem(userKey, JSON.stringify(res.data.user));
