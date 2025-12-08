@@ -1,0 +1,102 @@
+{
+  "info": {
+    "name": "OCR 20 Images Benchmark (Iteration Data)",
+    "_postman_id": "33aba96d-3d23-4ad7-ab02-2c9d2ec5d73b",
+    "description": "Run OCR requests using 20 different images via Newman iteration data.\n\nRequired environment variables:\n- baseUrl\n- convertPath (old: /api/convert, new: /api/convert-sync)\n- targetLang\n- outputFormat\n- docTitle\n\nRequired iteration-data column:\n- imagePath (absolute path for each row)\n\nRun with:\nnewman run <collection> -e <env> --iteration-data images.csv --delay-request 100\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Convert (image from iteration-data)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": "{{baseUrl}}{{convertPath}}",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "images",
+              "type": "file",
+              "src": "{{imagePath}}"
+            },
+            {
+              "key": "targetLang",
+              "type": "text",
+              "value": "{{targetLang}}"
+            },
+            {
+              "key": "outputFormat",
+              "type": "text",
+              "value": "{{outputFormat}}"
+            },
+            {
+              "key": "docTitle",
+              "type": "text",
+              "value": "{{docTitle}}"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const i = pm.info.iteration !== undefined ? pm.info.iteration : -1;",
+              "const img = pm.iterationData.get(\"imagePath\") || \"unknown\";",
+              "console.log(\"Iteration:\", i + 1, \"| RT(ms):\", pm.response.responseTime, \"| Image:\", img);",
+              "",
+              "// Collect RT list",
+              "const key = \"rt_list\";",
+              "let arr = [];",
+              "try { arr = JSON.parse(pm.globals.get(key) || \"[]\"); } catch (e) { arr = []; }",
+              "arr.push(pm.response.responseTime);",
+              "pm.globals.set(key, JSON.stringify(arr));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Print summary stats (after run)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Health endpoint optional\", function () {",
+              "    pm.expect([200, 404]).to.include(pm.response.code);",
+              "});",
+              "",
+              "let arr = [];",
+              "try { arr = JSON.parse(pm.globals.get(\"rt_list\") || \"[]\"); } catch (e) { arr = []; }",
+              "",
+              "if (arr.length) {",
+              "  arr.sort((a, b) => a - b);",
+              "  const sum = arr.reduce((s, x) => s + x, 0);",
+              "  const avg = Math.round(sum / arr.length);",
+              "  const p50 = arr[Math.floor(arr.length * 0.50)];",
+              "  const p95 = arr[Math.floor(arr.length * 0.95) - 1] || arr[arr.length - 1];",
+              "  console.log(\"RT Summary | count:\", arr.length, \"| avg:\", avg, \"| p50:\", p50, \"| p95:\", p95);",
+              "} else {",
+              "  console.log(\"No RT data collected.\");",
+              "}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

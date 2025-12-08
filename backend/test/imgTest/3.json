@@ -1,0 +1,34 @@
+{
+  "id": "e88260e1-dff3-41a9-b440-30168dc100ee",
+  "name": "OCR 20 Images - NEW",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "enabled": true
+    },
+    {
+      "key": "convertPath",
+      "value": "/api/convert-multi",
+      "enabled": true
+    },
+    {
+      "key": "targetLang",
+      "value": "vi",
+      "enabled": true
+    },
+    {
+      "key": "outputFormat",
+      "value": "pdf",
+      "enabled": true
+    },
+    {
+      "key": "docTitle",
+      "value": "Benchmark New 20 Images",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2025-12-08T04:39:26.047711Z",
+  "_postman_exported_using": "Daoendi"
+}
