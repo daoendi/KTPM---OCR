@@ -13,8 +13,8 @@ const TOKEN_EXP = process.env.JWT_EXPIRES_IN || "8h";
 function setTokenCookie(res, token) {
   const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    secure: false, // keep false in dev for http://localhost
+    sameSite: "lax", // lax works for same-site dev proxy
     maxAge: 1000 * 60 * 60 * 8, // 8 hours
     path: "/",
   };

@@ -36,7 +36,7 @@ import verifyToken from "./middleware/verifyToken.js";
 import jwt from "jsonwebtoken";
 import healthRouter from "./routes/health.js";
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || "daoendi";
 if (!JWT_SECRET) {
   console.warn(
     "WARNING: JWT_SECRET is not set. Authentication tokens will be insecure or may fail. Set JWT_SECRET in your environment."
@@ -55,8 +55,15 @@ const app = express();
 // allow cross-origin requests with credentials (cookies) when developing
 app.use(
   cors({
-    origin: true,
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "http://127.0.0.1:5173",
+      "http://127.0.0.1:3000",
+    ],
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.use(express.json());
@@ -493,7 +500,7 @@ app.get("/api/ocr-history", verifyToken, async (req, res) => {
     const limit = Math.min(100, parseInt(req.query.limit || "50", 10));
     const { getHistory } = await import("./utils/history.js");
     // Mặc định bỏ qua base64 để tải nhanh hơn
-    const owner = req.user?.asub;
+    const owner = req.user?.sub;
     const list = await getHistory(limit, true, owner);
     res.json(list);
   } catch (err) {
@@ -506,7 +513,7 @@ app.get("/api/ocr-history/:id/download", verifyToken, async (req, res) => {
   try {
     const { getHistoryItem } = await import("./utils/history.js");
     const id = req.params.id;
-    const owner = req.user?.asub;
+    const owner = req.user?.sub;
     const item = await getHistoryItem(id, owner);
     if (!item) return res.status(404).json({ error: "Not found" });
 
@@ -528,7 +535,7 @@ app.get("/api/ocr-history/:id/download", verifyToken, async (req, res) => {
 app.post("/api/ocr-history/clear", verifyToken, async (req, res) => {
   try {
     const { clearHistory } = await import("./utils/history.js");
-    const owner = req.user?.asub;
+    const owner = req.user?.sub;
     await clearHistory(owner);
     res.json({ message: "History cleared successfully" });
   } catch (err) {
